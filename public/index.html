@@ -1,0 +1,70 @@
+<!doctype html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Orbit Station</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Silkscreen:wght@400;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="vendor/xterm/css/xterm.css">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<main id="stage">
+  <canvas id="game" width="384" height="216" aria-label="Orbit Station"></canvas>
+  <div id="actions"></div>
+</main>
+
+<div id="ui">
+  <span id="link" class="off" aria-hidden="true"></span>
+  <button id="sound" type="button" aria-label="Sound" aria-pressed="false">
+    <svg viewBox="0 0 12 12" width="14" height="14" shape-rendering="crispEdges" aria-hidden="true">
+      <path d="M1 4h2l3-2v8L3 8H1z" fill="currentColor"/>
+      <path class="waves" d="M8 4h1v4H8zM10 2h1v8h-1z" fill="currentColor"/>
+      <path class="mute" d="M8 4h1v1H8zM9 5h1v1H9zM10 4h1v1h-1zM8 7h1v1H8zM10 7h1v1h-1z" fill="currentColor"/>
+    </svg>
+  </button>
+  <button id="demo" type="button">Spawn Demo Agents</button>
+  <button id="hire-open" type="button" class="primary">+ Hire Agent</button>
+</div>
+
+<section id="dock" hidden aria-label="Agent console">
+  <header>
+    <i id="dock-chip"></i>
+    <b id="dock-name"></b>
+    <span class="spacer"></span>
+    <button id="dock-stop" type="button" class="danger">Stop Agent</button>
+    <button id="dock-close" type="button" aria-label="Close console">&times;</button>
+  </header>
+  <div id="dock-terms"></div>
+  <div id="dock-ext" hidden>External session &mdash; view only</div>
+  <form id="dock-form" autocomplete="off">
+    <input id="dock-input" type="text" placeholder="Send a prompt&hellip;" aria-label="Prompt">
+    <button type="submit">Send</button>
+  </form>
+</section>
+
+<div id="modal" hidden>
+  <form id="hire" class="card" autocomplete="off">
+    <h2>Hire Agent</h2>
+    <label>Project folder
+      <input id="hire-cwd" type="text" placeholder="/Users/you/projects/my-app" required spellcheck="false">
+    </label>
+    <label><span>First task <em>(optional)</em></span>
+      <textarea id="hire-task" rows="3" placeholder="What should they work on?"></textarea>
+    </label>
+    <p id="hire-error" role="alert"></p>
+    <div class="row">
+      <button type="button" id="hire-cancel">Cancel</button>
+      <button type="submit" class="primary">Hire</button>
+    </div>
+  </form>
+</div>
+
+<script src="vendor/xterm/lib/xterm.js"></script>
+<script src="vendor/xterm-fit/lib/addon-fit.js"></script>
+<script src="game.js"></script>
+<script src="ui.js"></script>
+</body>
+</html>
