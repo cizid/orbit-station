@@ -89,5 +89,12 @@ Hooks to enable on top of the basic ones: `PostToolUse`, `PostToolUseFailure`, `
 - **Metrics:** tokens (incl. cache), response time per request, tool time, time waiting for you, failed calls, and cost. **Cost is an estimate** from token counts and model family; put exact prices in `data/prices.json` (`{"claude-sonnet-5-5": {"in": 3, "out": 15}}`). Unknown models show "n/a", never an invented number.
 - **Bottlenecks:** tools ranked by total time. The station map tints the room where the most tool time went in the last 10 minutes.
 - **Guardrails** (rules, no model calls, thresholds in `server/guardrails.js`): same tool + same input 3× in a row (loop), 3 failed calls in a row (cascade), same task handed to a subagent 3×, over 60 calls/min, a tool running > 2 min, estimated session cost over $5 / $15. An alert shows on the agent's name tag in the station and on both pages.
-- Not built yet: a model that rates outputs for toxicity / hallucination (costs API calls and is unreliable for hallucinations).
+- **Evidence checks** (also free: no model, no network; `server/evidence.js`, `server/verifier.js`). They compare what an agent says or writes with things we can look up:
+  - *Claim without proof:* the final message says tests pass / build ok / lint clean / committed / pushed (English or German), but no matching command ran in that turn (warn) or the last one failed (critical).
+  - *Missing file:* the message names a file inside the project that does not exist.
+  - *Unknown import:* an edit imports a package that is not in `package.json` and not installed.
+  - *Weakened tests:* an edit to a test file removes assertions or test cases, skips tests or silences checks; `rm` of test files.
+  - *Regression:* tests that were green and fail after edits; a turn needing far more tool calls or time than this project's usual (baseline in `data/baseline.json`).
+  These find provable problems, not everything: no alert is not proof that an answer is right.
+- Not built: a model that rates semantic hallucination or toxicity. Free local options exist (e.g. an entailment model like HHEM via ONNX, ~400 MB, CPU) but they only judge whether text follows from a given source, not whether it is true.
 - Trace data lives in memory (gone after a restart). Prompts and tool inputs are kept truncated, for the local pages only; transcripts are only read from `~/.claude/projects`.

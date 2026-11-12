@@ -228,7 +228,7 @@ export function createAgents({ labelsEl, Orbit, hooks }) {
       const bubble = a.bubble === 'alert' ? 'alert' : a.bubble === 'done' && !a.path.length && a.arrived ? 'done' : '';
       if (el.dataset.b !== bubble) el.dataset.b = bubble;
       const alert = a.alert && Date.now() - a.alert.at < 5 * 60_000 ? a.alert : null;   // guardrail warning wins over the state
-      const stateKey = alert ? `! ${alert.kind.toUpperCase()}` : a.state === 'working' && ACTIVITY[a.station] ? ACTIVITY[a.station] : (STATES[a.state] || STATES.working).label;
+      const stateKey = alert ? `! ${alert.short ?? alert.kind.toUpperCase()}` : a.state === 'working' && ACTIVITY[a.station] ? ACTIVITY[a.station] : (STATES[a.state] || STATES.working).label;
       if (el.dataset.s !== stateKey) {
         el.dataset.s = stateKey;
         const em = el.querySelector('.tag em');

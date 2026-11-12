@@ -13,6 +13,7 @@ import { createTraceStore } from './trace.js';
 import { createGuardrails } from './guardrails.js';
 import { createPricing } from './prices.js';
 import { resolveTranscript, readUsage } from './transcript.js';
+import { createVerifier } from './verifier.js';
 
 const PORT = 4111;
 const HOSTS = ['127.0.0.1', '::1'];   // "localhost" can resolve to either; never listen on anything reachable from the network
@@ -93,6 +94,8 @@ function readTranscripts(sid, force) {
   }
 }
 
+const verifier = createVerifier({ trace: traceStore, guard, file: path.join(rootDir, 'data', 'baseline.json') });
+
 function trackSession(event) {
   const { session_id, hook_event_name, tool_name, cwd } = event;
   if (hook_event_name === 'SessionEnd') {
@@ -115,7 +118,9 @@ function trackSession(event) {
 function ingest(event) {
   trackSession(event);
   taskStore.onEvent(event);
-  if (traceStore.onEvent(event)) {
+  const traced = traceStore.onEvent(event);
+  verifier.onEvent(event);
+  if (traced) {
     const name = event.hook_event_name;
     readTranscripts(event.session_id, name === 'Stop' || name === 'SubagentStop' || name === 'SessionEnd');
     guard.check(event.session_id);
@@ -232,7 +237,7 @@ wss.on('connection', (ws) => {
 });
 
 function shutdown() {
-  taskStore.flush();
+  taskStore.flush(); verifier.flush();
   for (const { term } of agentPtys.values()) term.kill();
   process.exit(0);
 }

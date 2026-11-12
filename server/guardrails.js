@@ -11,6 +11,9 @@ export const LIMITS = {
   cooldownMs: 60_000,                  // the same alert is not raised again within this time
 };
 
+// what the station shows on the name tag
+const SHORT = { loop: 'LOOP', errors: 'ERRORS', rate: 'RATE', stuck: 'STUCK', 'handoff-loop': 'HANDOFF', budget: 'BUDGET', 'unproven-claim': 'CLAIM?', 'missing-file': 'FILE?', 'unknown-import': 'IMPORT?', 'test-weakening': 'WEAK TEST', 'tests-red': 'TESTS RED', drift: 'DRIFT' };
+
 export function createGuardrails({ trace, now = Date.now, limits = LIMITS, onAlert = () => {} }) {
   const alerts = [], lastRaised = new Map();
 
@@ -18,7 +21,7 @@ export function createGuardrails({ trace, now = Date.now, limits = LIMITS, onAle
     const key = `${sid}|${agent}|${kind}`, at = now();
     if (at - (lastRaised.get(key) ?? -Infinity) < limits.cooldownMs) return;
     lastRaised.set(key, at);
-    const alert = { id: `${at}-${alerts.length}`, sid, agent, kind, level, msg, at };
+    const alert = { id: `${at}-${alerts.length}`, sid, agent, kind, short: SHORT[kind] ?? kind.toUpperCase(), level, msg, at };
     alerts.push(alert); if (alerts.length > 200) alerts.shift();
     onAlert(alert);
   }
@@ -58,5 +61,5 @@ export function createGuardrails({ trace, now = Date.now, limits = LIMITS, onAle
   }
 
   const active = (windowMs = 5 * 60_000) => alerts.filter(x => now() - x.at <= windowMs);
-  return { check, active, all: () => alerts };
+  return { check, raise, active, all: () => alerts };
 }
