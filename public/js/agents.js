@@ -204,6 +204,15 @@ export function createAgents({ labelsEl, Orbit, hooks }) {
         g.globalAlpha = 1;
       }
     }
+    // a subagent that went off to work stays tied to its parent
+    for (const a of list) {
+      const par = a.isSub && a.arrived && a.station !== 'meet' ? agents.get(a.parentId) : null;
+      if (!par) continue;
+      const n = Math.max(1, Math.floor(Math.hypot(a.x - par.x, a.y - par.y) / 5));
+      g.globalAlpha = 0.45;
+      for (let i = 1; i < n; i++) if ((i + Math.floor(t * 8)) % 3 === 0) rect(g, Math.round(par.x + (a.x - par.x) * i / n), Math.round(par.y - 18 + (a.y - par.y) * i / n), 2, 1, '#6ee7ff');
+      g.globalAlpha = 1;
+    }
     meet.draw(g, t);
   }
 
@@ -218,8 +227,14 @@ export function createAgents({ labelsEl, Orbit, hooks }) {
       el.style.transform = `translate(${Math.round(p.x)}px, ${Math.round(p.y)}px) translate(-50%, -100%)`;
       const bubble = a.bubble === 'alert' ? 'alert' : a.bubble === 'done' && !a.path.length && a.arrived ? 'done' : '';
       if (el.dataset.b !== bubble) el.dataset.b = bubble;
-      const stateKey = a.state === 'working' && ACTIVITY[a.station] ? ACTIVITY[a.station] : (STATES[a.state] || STATES.working).label;
-      if (el.dataset.s !== stateKey) { el.dataset.s = stateKey; const em = el.querySelector('.tag em'); em.textContent = stateKey; em.style.color = (STATES[a.state] || STATES.working).color; }
+      const alert = a.alert && Date.now() - a.alert.at < 5 * 60_000 ? a.alert : null;   // guardrail warning wins over the state
+      const stateKey = alert ? `! ${alert.kind.toUpperCase()}` : a.state === 'working' && ACTIVITY[a.station] ? ACTIVITY[a.station] : (STATES[a.state] || STATES.working).label;
+      if (el.dataset.s !== stateKey) {
+        el.dataset.s = stateKey;
+        const em = el.querySelector('.tag em');
+        em.textContent = stateKey; em.style.color = alert ? (alert.level === 'crit' ? '#ff4d4d' : '#ffc233') : (STATES[a.state] || STATES.working).color;
+        el.querySelector('.tag').title = alert ? alert.msg : '';
+      }
       if (a.shown !== a.name) { el.querySelector('.tag span').textContent = a.name; a.shown = a.name; }
       el.classList.toggle('sel', a.id === Orbit.selectedId);
       el.classList.toggle('hl', !!Orbit.highlightStation && Orbit.highlightStation === a.station);
@@ -235,5 +250,11 @@ export function createAgents({ labelsEl, Orbit, hooks }) {
     return occ;
   }
 
-  return { onEvent, syncSnapshot, update, draw, updateLabels, occupancy, goTo, leave };
+  // guardrail alerts from the server; a subagent's alert belongs to the agent that started it
+  function setAlert(alert) {
+    const a = agents.get(alert.sid);
+    if (a && (!a.alert || alert.at >= a.alert.at)) a.alert = alert;
+  }
+
+  return { onEvent, syncSnapshot, update, draw, updateLabels, occupancy, goTo, leave, setAlert };
 }

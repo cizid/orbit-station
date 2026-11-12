@@ -9,6 +9,10 @@ import { WebSocketServer, WebSocket } from 'ws';
 import { PAGES, API } from '../public/js/routes.js';
 import { stateOf } from '../public/js/states.js';
 import { createTaskStore, STATUSES } from './tasks.js';
+import { createTraceStore } from './trace.js';
+import { createGuardrails } from './guardrails.js';
+import { createPricing } from './prices.js';
+import { resolveTranscript, readUsage } from './transcript.js';
 
 const PORT = 4111;
 const HOSTS = ['127.0.0.1', '::1'];   // "localhost" can resolve to either; never listen on anything reachable from the network
@@ -55,6 +59,40 @@ const taskStore = createTaskStore({
   onChange: () => broadcast({ type: 'tasks', ...taskStore.snapshot() }),
 });
 
+// --- Tracing, metrics, guardrails --------------------------------------------
+
+const pricing = createPricing(path.join(rootDir, 'data', 'prices.json'));
+const traceStore = createTraceStore({ pricing });
+const guard = createGuardrails({ trace: traceStore, onAlert: (alert) => broadcast({ type: 'alert', alert }) });
+
+// debounce so a burst of events costs one message
+function throttled(fn, ms) {
+  let timer = null;
+  return () => { if (!timer) timer = setTimeout(() => { timer = null; fn(); }, ms).unref(); };
+}
+const pingTrace = throttled(() => broadcast({ type: 'trace' }), 400);
+const pingMetrics = throttled(() => { const m = traceStore.metrics(); broadcast({ type: 'metrics', heat: m.heat, totals: m.totals }); }, 2000);
+
+// token usage lives in the transcripts the hooks point to; read what was appended since last time
+const lastUsageRead = new Map();
+function readTranscripts(sid, force) {
+  const s = traceStore.raw(sid);
+  if (!s || (!force && Date.now() - (lastUsageRead.get(sid) ?? 0) < 5000)) return;
+  lastUsageRead.set(sid, Date.now());
+  for (const [key, file] of Object.entries(s.paths)) {
+    if (key === 'offsets' || typeof file !== 'string') continue;
+    const real = resolveTranscript(file);
+    if (!real) continue;
+    try {
+      const own = key === 'main' ? sid : key;
+      const prev = s.paths.offsets[key] ?? { offset: 0, prevTs: null };
+      const { requests, offset, prevTs } = readUsage(real, prev.offset, { skipSidechain: key === 'main', prevTs: prev.prevTs });
+      s.paths.offsets[key] = { offset, prevTs };
+      traceStore.addUsage(sid, own, requests);
+    } catch { /* transcript not readable right now */ }
+  }
+}
+
 function trackSession(event) {
   const { session_id, hook_event_name, tool_name, cwd } = event;
   if (hook_event_name === 'SessionEnd') {
@@ -77,6 +115,12 @@ function trackSession(event) {
 function ingest(event) {
   trackSession(event);
   taskStore.onEvent(event);
+  if (traceStore.onEvent(event)) {
+    const name = event.hook_event_name;
+    readTranscripts(event.session_id, name === 'Stop' || name === 'SubagentStop' || name === 'SessionEnd');
+    guard.check(event.session_id);
+    pingTrace(); pingMetrics();
+  }
   broadcast({ type: 'event', event, sessions: [...sessions.values()] });
 }
 
@@ -86,7 +130,7 @@ setInterval(() => {
     if (s.last_seen < cutoff && !agentPtys.has(id)) {
       sessions.delete(id);
       const event = { session_id: id, hook_event_name: 'SessionEnd', reason: 'timeout', cwd: s.cwd };
-      taskStore.onEvent(event);
+      taskStore.onEvent(event); traceStore.onEvent(event);
       broadcast({ type: 'event', event, sessions: [...sessions.values()] });
     }
   }
@@ -169,6 +213,8 @@ wss.on('connection', (ws) => {
     type: 'snapshot',
     sessions: [...sessions.values()],
     ...taskStore.snapshot(),
+    alerts: guard.active(),
+    heat: traceStore.metrics().heat,
     agents: [...agentPtys].map(([session_id, a]) => ({ session_id, cwd: a.cwd, buffer: a.buffer })),
   }));
 
@@ -219,6 +265,11 @@ function sameOrigin(req, res, next) {
   res.status(403).json({ error: 'forbidden origin' });
 }
 
+app.get(API.trace, (req, res) => {
+  const list = traceStore.list(), sid = typeof req.query.sid === 'string' ? req.query.sid : list[0]?.sid;
+  res.json({ sessions: list, trace: sid ? traceStore.view(sid) : null, alerts: guard.active() });
+});
+app.get(API.metrics, (_req, res) => res.json({ ...traceStore.metrics(), alerts: guard.active(), pricing_note: 'Costs are estimates from token counts; exact prices go in data/prices.json.' }));
 app.get(API.tasks, (_req, res) => res.json({ statuses: STATUSES, ...taskStore.snapshot() }));
 app.post(API.taskStatus, sameOrigin, (req, res) => {
   const result = taskStore.setStatus(req.params.id, req.body?.status);
@@ -254,7 +305,7 @@ const DEMO_STEPS = [
   { hook_event_name: 'PreToolUse', tool_name: 'Task', tool_input: { description: 'Review src/main.js' } },
   { hook_event_name: 'PreToolUse', tool_name: 'Edit', tool_input: { file_path: 'src/main.js', old_string: 'a', new_string: 'b' } },
   { hook_event_name: 'PreToolUse', tool_name: 'Bash', tool_input: { command: 'npm test' } },
-  { hook_event_name: 'SubagentStop' },
+  { hook_event_name: 'SubagentStop', agent_id: 'demo-sub' },
   (a, n) => demoTodos(a, n, 2, 2),
   { hook_event_name: 'Notification', message: 'Claude needs your permission' },
   { hook_event_name: 'Stop' },
@@ -264,12 +315,24 @@ let demoTimers = [];
 
 function startDemo() {
   demoTimers.forEach(clearInterval);
-  taskStore.clearDemo();
+  taskStore.clearDemo(); traceStore.clearDemo();
   demoTimers = DEMO_AGENTS.map((agent, i) => {
-    let step = 0, lap = 1;
+    let step = 0, lap = 1, subId = null, seq = 0;
     const tick = () => {
       const s = DEMO_STEPS[step];
-      ingest({ ...agent, ...(typeof s === 'function' ? s(path.basename(agent.cwd).toUpperCase(), lap) : s) });
+      const ev = { ...agent, ...(typeof s === 'function' ? s(path.basename(agent.cwd).toUpperCase(), lap) : s) };
+      if (subId && ev.hook_event_name === 'PreToolUse' && ev.tool_name !== 'Task') ev.agent_id = subId;   // subagent's own calls
+      if (ev.hook_event_name === 'PreToolUse') {
+        ev.tool_use_id = `${agent.session_id}-${lap}-${++seq}`;
+        const ms = 200 + Math.round(Math.random() * 1800), who = ev.agent_id ?? agent.session_id, id = ev.tool_use_id, tool = ev.tool_name;
+        setTimeout(() => ingest({ ...agent, hook_event_name: 'PostToolUse', tool_name: tool, tool_use_id: id, duration_ms: ms, ...(ev.agent_id ? { agent_id: ev.agent_id } : {}) }), Math.min(ms, 1500));
+        // made-up token usage so the metrics page has something to show in the demo
+        traceStore.addUsage(agent.session_id, who, [{ id: `u-${id}`, model: 'claude-sonnet-5-5', in: 800 + Math.round(Math.random() * 3000), out: 100 + Math.round(Math.random() * 700), cr: 4000, cc: 0, latency_ms: 600 + Math.round(Math.random() * 2500) }]);
+      }
+      if (ev.hook_event_name === 'SubagentStop' && subId) ev.agent_id = subId;
+      ingest(ev);
+      if (ev.hook_event_name === 'PreToolUse' && ev.tool_name === 'Task') { subId = `${agent.session_id}-sub${lap}`; ingest({ ...agent, hook_event_name: 'SubagentStart', agent_id: subId, agent_type: 'general-purpose' }); }
+      if (ev.hook_event_name === 'SubagentStop') { subId = null; }
       if (++step === DEMO_STEPS.length) { step = 0; lap++; }
     };
     // Stagger agents so they don't move in lockstep.

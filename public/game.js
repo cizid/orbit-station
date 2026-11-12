@@ -145,8 +145,10 @@ connectLink({
   onSocket: ws => { socket = ws; },
   onStatus: on => link.classList.toggle('on', on),
   onMessage(msg) {
-    if (msg.type === 'snapshot') crowd.syncSnapshot(msg.sessions);
+    if (msg.type === 'snapshot') { crowd.syncSnapshot(msg.sessions); heat = msg.heat || {}; for (const a of msg.alerts || []) crowd.setAlert(a); }
     else if (msg.type === 'event') crowd.onEvent(msg.event);
+    else if (msg.type === 'metrics') heat = msg.heat || {};
+    else if (msg.type === 'alert') crowd.setAlert(msg.alert);
     if (focusId && Orbit.agents.has(focusId)) { Orbit.select(focusId); focusId = ''; }
     if (Orbit.onMessage) Orbit.onMessage(msg);
   },
@@ -223,6 +225,20 @@ function drawSlotMarks(occ, t) {
   }
 }
 
+// rooms where the tools take the most time glow warm (from the metrics the server sends)
+let heat = {};
+function drawHeat(t) {
+  for (const [key, v] of Object.entries(heat)) {
+    if (v < 0.4 || !ROOM[key]) continue;
+    const r = roomRect(key);
+    g.globalAlpha = 0.06 + 0.1 * v;
+    rect(g, r.x, r.y, r.w, r.h, '#ff6a2a');
+    g.globalAlpha = (0.35 + 0.3 * Math.sin(t * 3)) * v;
+    rect(g, r.x, r.y + r.h - 3, r.w, 3, '#ff6a2a'); rect(g, r.x, r.y, 2, r.h, '#ff6a2a'); rect(g, r.x + r.w - 2, r.y, 2, r.h, '#ff6a2a');
+    g.globalAlpha = 1;
+  }
+}
+
 function drawRoomHighlight(t) {
   const key = Orbit.highlightStation;
   if (!key) return;
@@ -244,6 +260,7 @@ function render(t, dt) {
   gateOpenAmt += ((nearGate ? 1 : 0) - gateOpenAmt) * Math.min(1, dt * 6);
   for (const r of [...ROOMS, ROOM.meet]) STATION_DEFS[r.key].animate(g, r.tx * T, r.ty * T, t, occ[r.key] || EMPTY, { gateOpen: gateOpenAmt, deskOfSlot: STATION_DEFS.desks.deskOfSlot });
   drawSlotMarks(occ, t);
+  drawHeat(t);
   drawRoomHighlight(t);
   crowd.draw(g, t);
 }
