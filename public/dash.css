@@ -74,3 +74,13 @@ main > .panel h2 .sub { margin-left: 10px; color: var(--metal); font-weight: 400
 .verdict small { display: block; margin-top: 6px; color: #5d6b80; font-family: var(--px); font-size: 9px; letter-spacing: 0.05em; }
 .turn button { margin-top: 8px; padding: 6px 9px; font-size: 10px; }
 .verdict .dim { color: #5d6b80; }
+
+/* ---- readability ---- */
+.tl-name { font-size: 11px; letter-spacing: 0.03em; }
+.tl-axis, .legend-row { font-size: 11px; }
+.turn .head { font-size: 11px; }
+.tile span { font-size: 11px; } .tile small { font: 400 11px/1.4 ui-monospace, "SF Mono", Menlo, monospace; letter-spacing: 0; }
+.bar { font-size: 12px; } .bar .num { font: 400 12px ui-monospace, "SF Mono", Menlo, monospace; }
+.alerts .kind { font-size: 10px; }
+.verdict small { font: 400 11px ui-monospace, "SF Mono", Menlo, monospace; letter-spacing: 0; }
+.empty-note { font: 400 12px/1.6 ui-monospace, "SF Mono", Menlo, monospace; letter-spacing: 0; }

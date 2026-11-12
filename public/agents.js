@@ -14,7 +14,7 @@ const FEED_LINES = 14;
 const ALLOW_KEYS = '1', DENY_KEYS = '\x1b';   // checked against the real Claude Code permission menu
 const post = (url, body) => fetch(url, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) }).then(r => r.json()).catch(() => ({ error: 'request failed' }));
 
-let data = null, selected = 'all', socket = null, openTerm = null;
+let data = null, selected = 'all', socket = null;
 const roleOff = new Set();                 // roles hidden by the filter
 const cards = new Map();                   // sid -> { el, refs }
 const ptyBuf = new Map();                  // sid -> recent terminal output, for replay when a terminal is opened
@@ -73,9 +73,9 @@ function buildCard(a) {
   const el = document.createElement('article');
   el.className = 'acard';
   el.innerHTML = `<header><h3></h3><select class="role" aria-label="Role"></select><span class="chip"></span><span class="alerts-n"></span></header>
-    <div class="meta"></div><div class="feed" role="log" aria-label="Live feed"></div>
-    <footer><button type="button" data-act="term"></button><button type="button" class="danger" data-act="stop">Stop</button></footer>`;
-  const refs = { name: el.querySelector('h3'), role: el.querySelector('.role'), chip: el.querySelector('.chip'), alerts: el.querySelector('.alerts-n'), meta: el.querySelector('.meta'), feed: el.querySelector('.feed'), term: el.querySelector('[data-act=term]'), stop: el.querySelector('[data-act=stop]') };
+    <div class="meta"></div><div class="tbox" hidden aria-label="Terminal"></div><div class="feed" role="log" aria-label="Live feed"></div>
+    <footer><button type="button" data-act="allow">Allow</button><button type="button" data-act="deny">Deny</button><span class="spacer"></span><button type="button" data-act="big">Expand</button><button type="button" class="danger" data-act="stop">Stop</button></footer>`;
+  const refs = { name: el.querySelector('h3'), role: el.querySelector('.role'), chip: el.querySelector('.chip'), alerts: el.querySelector('.alerts-n'), meta: el.querySelector('.meta'), feed: el.querySelector('.feed'), tbox: el.querySelector('.tbox'), managedBtns: [...el.querySelectorAll('[data-act=allow],[data-act=deny],[data-act=stop]')], term: null, fit: null };
   refs.role.innerHTML = Object.entries(data.roles).map(([k, r]) => `<option value="${k}">${esc(r.label)}</option>`).join('');
   refs.role.onchange = async () => { await post(`/api/agents/${encodeURIComponent(a.sid)}/role`, { role: refs.role.value }); };
   el.dataset.sid = a.sid;
@@ -91,8 +91,26 @@ function updateCard(c, a) {
   refs.chip.style.setProperty('--s', st.color); refs.chip.className = `chip${a.state === 'waiting' ? ' pulse' : ''}`; refs.chip.textContent = st.label; refs.chip.title = st.hint;
   refs.alerts.textContent = a.alerts ? `! ${a.alerts}` : '';
   refs.meta.innerHTML = `<span class="branch">⎇ ${esc(a.branch ?? '–')}</span>${a.worktree ? '<span class="wt">WORKTREE</span>' : ''}<span>cost <b>${usd(a.cost)}</b></span><span>tokens <b>${num(a.tokens)}</b></span>${a.ctx != null ? `<span>ctx <b>${Math.round(a.ctx)}%</b></span>` : ''}`;
-  refs.term.textContent = managed ? 'Open terminal' : 'Open feed';
-  refs.stop.hidden = !managed;
+  for (const b of refs.managedBtns) b.hidden = !managed;
+  if (managed && !refs.term) attachTerminal(a.sid, refs);   // hired here: the card IS the terminal
+  refs.tbox.hidden = !refs.term; refs.feed.hidden = !!refs.term;
+}
+
+// a real terminal inside the card: type right here, no extra window
+function attachTerminal(sid, refs) {
+  const term = new window.Terminal({ fontFamily: 'ui-monospace, "SF Mono", Menlo, monospace', fontSize: 12, scrollback: 2000, theme: { background: '#000000' }, cursorBlink: true });
+  const fit = new window.FitAddon.FitAddon();
+  term.loadAddon(fit);
+  refs.tbox.hidden = false;
+  term.open(refs.tbox);
+  term.write(ptyBuf.get(sid) ?? '');
+  term.onData(d => send({ type: 'send_input', session_id: sid, data: d }));
+  term.onResize(({ cols, rows }) => send({ type: 'resize', session_id: sid, cols, rows }));
+  let raf = 0;
+  const refit = () => { cancelAnimationFrame(raf); raf = requestAnimationFrame(() => { try { fit.fit(); } catch { /* hidden */ } }); };
+  new ResizeObserver(refit).observe(refs.tbox);
+  refs.term = term; refs.fit = refit;
+  refit();
 }
 
 function syncCards() {
@@ -100,7 +118,7 @@ function syncCards() {
   const rank = a => (a.ended ? 3 : a.state === 'waiting' ? 0 : a.state === 'working' || a.state === 'handoff' ? 1 : 2);
   wanted.sort((a, b) => rank(a) - rank(b) || b.last_seen - a.last_seen);
   const keep = new Set(wanted.map(a => a.sid));
-  for (const [sid, c] of cards) if (!keep.has(sid)) { c.el.remove(); cards.delete(sid); }
+  for (const [sid, c] of cards) if (!keep.has(sid)) { c.refs.term?.dispose(); c.el.remove(); cards.delete(sid); }
   const grid = $('grid');
   wanted.forEach((a, i) => {
     let c = cards.get(a.sid);
@@ -128,57 +146,16 @@ function render() { renderSide(); renderFilters(); renderWarnings(); syncCards()
 $('side').addEventListener('click', e => { const b = e.target.closest('.proj'); if (b) { selected = b.dataset.root; render(); } });
 $('filters').addEventListener('click', e => { const b = e.target.closest('.fchip'); if (!b) return; roleOff.has(b.dataset.role) ? roleOff.delete(b.dataset.role) : roleOff.add(b.dataset.role); render(); });
 $('grid').addEventListener('click', e => {
-  const btn = e.target.closest('button[data-act]'), sid = btn?.closest('.acard')?.dataset.sid;
-  if (!sid) return;
-  if (btn.dataset.act === 'term') openTerminal(sid);
-  else if (btn.dataset.act === 'stop') send({ type: 'kill_agent', session_id: sid });
+  const btn = e.target.closest('button[data-act]'), card = btn?.closest('.acard');
+  if (!card) return;
+  const sid = card.dataset.sid, c = cards.get(sid);
+  if (btn.dataset.act === 'stop') send({ type: 'kill_agent', session_id: sid });
+  else if (btn.dataset.act === 'allow') send({ type: 'send_input', session_id: sid, data: ALLOW_KEYS });
+  else if (btn.dataset.act === 'deny') send({ type: 'send_input', session_id: sid, data: DENY_KEYS });
+  else if (btn.dataset.act === 'big') { card.classList.toggle('big'); btn.textContent = card.classList.contains('big') ? 'Shrink' : 'Expand'; c?.refs.fit?.(); }
 });
-
-// ------------------------------------------------------------------ terminal dock
-function openTerminal(sid) {
-  closeTerminal();
-  const a = data.agents.find(x => x.sid === sid);
-  if (!a) return;
-  const managed = data.managed.includes(sid), body = $('term-body');
-  $('term-dock').hidden = false;
-  $('term-name').textContent = $('grid').querySelector(`[data-sid="${sid}"] h3`)?.textContent ?? sid.slice(0, 6);
-  $('term-chip').style.setProperty('--c', roleOf(a.role).color);
-  $('term-sub').textContent = managed ? 'interactive session' : 'started elsewhere: live feed only';
-  for (const id of ['term-allow', 'term-deny', 'term-stop']) $(id).hidden = !managed;
-  $('term-form').hidden = !managed;
-  body.innerHTML = '';
-  if (!managed) {
-    const v = document.createElement('div');
-    v.className = 'view-only';
-    v.textContent = 'This session was started in another terminal, so the dashboard can only watch it (the live feed on its card). Hire agents from here to get a full terminal you can type into.';
-    body.append(v);
-    openTerm = { sid, term: null };
-    return;
-  }
-  const term = new window.Terminal({ fontFamily: 'ui-monospace, "SF Mono", Menlo, monospace', fontSize: 12, scrollback: 4000, theme: { background: '#000000' }, cursorBlink: true });
-  const fit = new window.FitAddon.FitAddon();
-  term.loadAddon(fit); term.open(body);
-  term.write(ptyBuf.get(sid) ?? '');
-  term.onData(d => send({ type: 'send_input', session_id: sid, data: d }));
-  term.onResize(({ cols, rows }) => send({ type: 'resize', session_id: sid, cols, rows }));
-  openTerm = { sid, term, fit };
-  requestAnimationFrame(() => { fit.fit(); term.focus(); });
-}
-function closeTerminal() { openTerm?.term?.dispose(); openTerm = null; $('term-dock').hidden = true; }
-$('term-close').onclick = closeTerminal;
-$('term-stop').onclick = () => openTerm && send({ type: 'kill_agent', session_id: openTerm.sid });
-$('term-allow').onclick = () => openTerm && send({ type: 'send_input', session_id: openTerm.sid, data: ALLOW_KEYS });
-$('term-deny').onclick = () => openTerm && send({ type: 'send_input', session_id: openTerm.sid, data: DENY_KEYS });
-$('term-form').addEventListener('submit', e => {
-  e.preventDefault();
-  const text = $('term-input').value.trim();
-  if (!text || !openTerm) return;
-  const sid = openTerm.sid;
-  send({ type: 'send_input', session_id: sid, data: text });
-  setTimeout(() => send({ type: 'send_input', session_id: sid, data: '\r' }), 60);   // text first, then Enter
-  $('term-input').value = '';
-});
-window.addEventListener('resize', () => openTerm?.fit?.fit());
+// clicking anywhere in the terminal box focuses it
+$('grid').addEventListener('mousedown', e => { const box = e.target.closest('.tbox'); if (box) cards.get(box.closest('.acard').dataset.sid)?.refs.term?.focus(); });
 
 // ------------------------------------------------------------------ hire
 function openHire() {
@@ -203,12 +180,14 @@ connectLink({
   onStatus: on => $('link').classList.toggle('on', on),
   onMessage(msg) {
     switch (msg.type) {
-      case 'snapshot': for (const a of msg.agents ?? []) ptyBuf.set(a.session_id, a.buffer ?? ''); soon(); break;
+      case 'snapshot':
+        for (const a of msg.agents ?? []) { ptyBuf.set(a.session_id, a.buffer ?? ''); const t = cards.get(a.session_id)?.refs.term; if (t) { t.reset(); t.write(a.buffer ?? ''); } }
+        soon(); break;
       case 'feed': { const c = cards.get(msg.session_id); if (c) pushFeed(c.refs, msg.lines); break; }
       case 'pty_output': {
         const b = ((ptyBuf.get(msg.session_id) ?? '') + msg.data).slice(-64 * 1024);
         ptyBuf.set(msg.session_id, b);
-        if (openTerm?.sid === msg.session_id) openTerm.term?.write(msg.data);
+        cards.get(msg.session_id)?.refs.term?.write(msg.data);
         break;
       }
       case 'agent_spawned': $('modal').hidden = true; $('hire-task').value = ''; soon(); break;

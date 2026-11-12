@@ -64,3 +64,22 @@ label.check em { color: #5d6b80; font-style: normal; font-size: 9px; }
 .layout > main { display: block; width: 100%; max-width: none; margin: 0; min-width: 0; }
 .quota small.dim, .panel small.dim { display: block; margin-top: 6px; color: #5d6b80; text-transform: none; }
 #warnings .alerts { max-height: 132px; overflow: auto; }
+
+/* ---- readability ---- */
+.proj { font-size: 12px; } .proj b { font-size: 13px; letter-spacing: 0.04em; } .proj small { font: 400 11px ui-monospace, "SF Mono", Menlo, monospace; letter-spacing: 0; }
+.cfg label, .quota label { font-size: 11px; }
+.fchip { font-size: 11px; padding: 7px 10px; }
+.acard h3 { font-size: 14px; }
+.acard .role { font-size: 11px; }
+.acard .meta { font: 500 12px/1.4 ui-monospace, "SF Mono", Menlo, monospace; letter-spacing: 0; }
+.acard footer button { font-size: 11px; padding: 7px 10px; }
+.hist, .feed { font-size: 12px; }
+
+/* ---- the card is the terminal ---- */
+.tbox { flex: 1; min-height: 0; height: 280px; padding: 4px 6px; background: #000; border-top: 1px solid var(--line); border-bottom: 1px solid var(--line); cursor: text; }
+.tbox[hidden], .feed[hidden] { display: none; }
+.tbox .xterm { height: 100%; }
+.acard.big { grid-column: 1 / -1; }
+.acard.big .tbox { height: 520px; }
+.acard.big .feed { height: 420px; }
+.acard footer .spacer { flex: 1; }
