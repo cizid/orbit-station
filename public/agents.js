@@ -14,7 +14,7 @@ const FEED_LINES = 14;
 const ALLOW_KEYS = '1', DENY_KEYS = '\x1b';   // checked against the real Claude Code permission menu
 const post = (url, body) => fetch(url, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) }).then(r => r.json()).catch(() => ({ error: 'request failed' }));
 
-let data = null, selected = 'all', socket = null;
+let data = null, selected = 'all', socket = null, showEnded = false;   // finished agents are in the project history; hidden unless asked for
 const roleOff = new Set();                 // roles hidden by the filter
 const cards = new Map();                   // sid -> { el, refs }
 const ptyBuf = new Map();                  // sid -> recent terminal output, for replay when a terminal is opened
@@ -49,8 +49,12 @@ function sideHtml() {
       <small class="dim">Costs are estimates from token counts (${data.max_agents} agents max).</small></section>`;
 }
 
+let sideSig = '';
 function renderSide() {
-  $('side').innerHTML = sideHtml();
+  const html = sideHtml();
+  if (html === sideSig) return;            // nothing changed: leave inputs and scroll position alone
+  sideSig = html;
+  $('side').innerHTML = html;
   const cur = data.projects.find(x => x.root === selected);
   if (!cur) return;
   const upd = patch => post('/api/projects/config', { root: cur.root, ...patch });
@@ -114,37 +118,46 @@ function attachTerminal(sid, refs) {
 }
 
 function syncCards() {
-  const wanted = data.agents.filter(a => (selected === 'all' || a.root === selected) && !roleOff.has(a.role));
-  const rank = a => (a.ended ? 3 : a.state === 'waiting' ? 0 : a.state === 'working' || a.state === 'handoff' ? 1 : 2);
-  wanted.sort((a, b) => rank(a) - rank(b) || b.last_seen - a.last_seen);
+  // stable order (oldest first, new agents at the end): cards never jump around when states change,
+  // and moving a node would take the keyboard focus away from a terminal
+  const wanted = data.agents.filter(a => (showEnded || !a.ended) && (selected === 'all' || a.root === selected) && !roleOff.has(a.role)).sort((a, b) => a.started - b.started);
   const keep = new Set(wanted.map(a => a.sid));
   for (const [sid, c] of cards) if (!keep.has(sid)) { c.refs.term?.dispose(); c.el.remove(); cards.delete(sid); }
   const grid = $('grid');
-  wanted.forEach((a, i) => {
-    let c = cards.get(a.sid);
-    if (!c) { c = buildCard(a); cards.set(a.sid, c); pushFeed(c.refs, a.feed); }
-    updateCard(c, a);
-    if (grid.children[i] !== c.el) grid.insertBefore(c.el, grid.children[i] ?? null);
-  });
+  grid.querySelector(':scope > .empty-note')?.remove();
+  let prev = null;
+  for (const a of wanted) {
+    let c = cards.get(a.sid), fresh = false;
+    if (!c) { c = buildCard(a); cards.set(a.sid, c); pushFeed(c.refs, a.feed); fresh = true; }
+    const sig = JSON.stringify([a.role, a.state, a.ended, a.branch, a.worktree, a.name, a.alerts, a.ctx != null ? Math.round(a.ctx) : null, a.cost.toFixed(3), a.tokens, data.managed.includes(a.sid)]);
+    if (c.sig !== sig) { c.sig = sig; updateCard(c, a); }
+    const want = prev ? prev.nextElementSibling : grid.firstElementChild;
+    if (want !== c.el) grid.insertBefore(c.el, want);   // only new cards (or a changed filter) move anything
+    if (fresh && data.managed.includes(a.sid)) c.el.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+    prev = c.el;
+  }
   if (!wanted.length) grid.innerHTML = '<p class="empty-note">No agents here yet. Press “+ Hire Agent”, or start a Claude Code session with the hooks.</p>';
-  else grid.querySelector(':scope > .empty-note')?.remove();
 }
 
+let filterSig = '';
 function renderFilters() {
-  const used = new Set(data.agents.map(a => a.role));
-  $('filters').innerHTML = [...used].map(k => { const r = roleOf(k); return `<button type="button" class="fchip" data-role="${k}" style="--c:${r.color}" aria-pressed="${!roleOff.has(k)}">${esc(r.label)}</button>`; }).join('');
+  const live = data.agents.filter(a => showEnded || !a.ended), used = new Set(live.map(a => a.role)), ended = data.agents.filter(a => a.ended).length;
+  const html = [...used].map(k => { const r = roleOf(k); return `<button type="button" class="fchip" data-role="${k}" style="--c:${r.color}" aria-pressed="${!roleOff.has(k)}">${esc(r.label)}</button>`; }).join('') + (ended ? `<button type="button" class="fchip" data-ended="1" style="--c:#94a3b8;margin-left:auto" aria-pressed="${showEnded}">${showEnded ? 'Hide' : 'Show'} finished (${ended})</button>` : '');
+  if (html !== filterSig) { filterSig = html; $('filters').innerHTML = html; }
 }
+let warnSig = '';
 function renderWarnings() {
   const al = data.alerts.filter(a => ['conflict-risk', 'merge-conflict', 'budget'].includes(a.kind) && (selected === 'all' || data.agents.find(x => x.sid === a.sid)?.root === selected));
   al.sort((x, y) => y.at - x.at);
-  $('warnings').innerHTML = al.length ? `<ul class="alerts">${al.map(a => `<li class="${a.level}"><span class="kind">${esc(a.short ?? a.kind)}</span><span>${esc(a.msg)}</span><time>${new Date(a.at).toLocaleTimeString()}</time></li>`).join('')}</ul>` : '';
+  const wHtml = al.length ? `<ul class="alerts">${al.map(a => `<li class="${a.level}"><span class="kind">${esc(a.short ?? a.kind)}</span><span>${esc(a.msg)}</span><time>${new Date(a.at).toLocaleTimeString()}</time></li>`).join('')}</ul>` : '';
+  if (wHtml !== warnSig) { warnSig = wHtml; $('warnings').innerHTML = wHtml; }
 }
 
 function render() { renderSide(); renderFilters(); renderWarnings(); syncCards(); }
 
 // ------------------------------------------------------------------ interaction
 $('side').addEventListener('click', e => { const b = e.target.closest('.proj'); if (b) { selected = b.dataset.root; render(); } });
-$('filters').addEventListener('click', e => { const b = e.target.closest('.fchip'); if (!b) return; roleOff.has(b.dataset.role) ? roleOff.delete(b.dataset.role) : roleOff.add(b.dataset.role); render(); });
+$('filters').addEventListener('click', e => { const b = e.target.closest('.fchip'); if (!b) return; if (b.dataset.ended) { showEnded = !showEnded; render(); return; } roleOff.has(b.dataset.role) ? roleOff.delete(b.dataset.role) : roleOff.add(b.dataset.role); render(); });
 $('grid').addEventListener('click', e => {
   const btn = e.target.closest('button[data-act]'), card = btn?.closest('.acard');
   if (!card) return;
