@@ -5,7 +5,7 @@
   "type": "module",
   "scripts": {
     "start": "node server/index.js",
-    "test": "node --test server/tasks.test.js server/states.test.js server/trace.test.js server/verifier.test.js",
+    "test": "node --test server/tasks.test.js server/states.test.js server/trace.test.js server/verifier.test.js server/judge.test.js",
     "postinstall": "chmod +x node_modules/node-pty/prebuilds/*/spawn-helper 2>/dev/null || true"
   },
   "dependencies": {

@@ -24,6 +24,15 @@ const CLAIMS = {
 };
 const NEGATION = /(\bnot\b|n't\b|\bnever\b|\bnicht\b|\bkein\w*\b|\bno\b|\bnoch\b|\bohne\b|\bbefore\b|\bunless\b)[^.!?\n]{0,25}$/i;
 
+// is position `idx` inside a quotation? (an agent quoting a sentence it refuses to say is not claiming it)
+function inQuote(text, idx) {
+  const before = text.slice(Math.max(0, text.lastIndexOf('\n', idx)), idx);
+  const n = ch => before.split(ch).length - 1;
+  const pairs = [['„', ['“', '”', '"']], ['“', ['”']], ['«', ['»']], ['»', ['«']]];
+  if (pairs.some(([o, cs]) => n(o) > cs.reduce((k, c) => k + n(c), 0))) return true;
+  return n('"') % 2 === 1 || n('`') % 2 === 1;
+}
+
 export function claimsIn(text) {
   const found = [];
   const t = String(text ?? '');
@@ -31,7 +40,8 @@ export function claimsIn(text) {
     for (const re of patterns) {
       const g = new RegExp(re.source, re.flags.includes('g') ? re.flags : re.flags + 'g');
       for (const m of t.matchAll(g)) {
-        if (NEGATION.test(t.slice(Math.max(0, m.index - 30), m.index))) continue;   // "not committed", "noch nicht gepusht"
+        if (NEGATION.test(t.slice(Math.max(0, m.index - 30), m.index))) continue;
+        if (inQuote(t, m.index)) continue;   // "not committed", "noch nicht gepusht"
         found.push({ kind, text: m[0].trim() });
         break;
       }

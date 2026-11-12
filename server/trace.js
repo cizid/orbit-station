@@ -9,6 +9,12 @@ import { isTask, TOOL_STATION, projectName } from '../public/js/states.js';
 const MAX_SPANS = 4000, MAX_EDGES = 800, MAX_SESSIONS = 40, TEXT = 240;
 const clip = (s, n = TEXT) => String(s ?? '').replace(/\s+/g, ' ').trim().slice(0, n);
 const sig = (tool, input) => createHash('sha1').update(`${tool}\0${JSON.stringify(input ?? null)}`).digest('hex').slice(0, 10);
+// a short excerpt of what a tool returned, so a reviewer can see what the agent actually saw
+const brief = r => {
+  if (r == null) return '';
+  const t = typeof r === 'string' ? r : JSON.stringify(r);
+  return clip(t, 300);
+};
 const summarize = input => (input && typeof input === 'object')
   ? clip(input.file_path ?? input.command ?? input.pattern ?? input.url ?? input.query ?? input.description ?? input.subject ?? '', 120) : '';
 
@@ -19,7 +25,7 @@ export function createTraceStore({ now = Date.now, pricing = null } = {}) {
     let s = sessions.get(ev.session_id);
     if (!s) {
       s = { sid: ev.session_id, cwd: ev.cwd ?? '', project: projectName(ev.cwd), started: now(), ended: null, agents: new Map(), spans: [], edges: [],
-        open: new Map(), pending: [], wait: null, usage: new Map(), paths: { main: null, offsets: {} } };
+        open: new Map(), pending: [], wait: null, turns: [], judgements: [], usage: new Map(), paths: { main: null, offsets: {} } };
       sessions.set(s.sid, s);
       if (sessions.size > MAX_SESSIONS) sessions.delete(sessions.keys().next().value);
     }
@@ -41,6 +47,12 @@ export function createTraceStore({ now = Date.now, pricing = null } = {}) {
   function closeWait(s, at) {
     if (s.wait) { s.wait.end = at; s.wait.status = 'ok'; s.wait = null; return true; }
     return false;
+  }
+
+  // a finished turn: what was asked, what the agent finally said, and when
+  function recordTurn(s, key, start, end, prompt, message) {
+    if (typeof message !== 'string' || !message.trim()) return;
+    push(s.turns, { id: `${key.slice(0, 8)}-${end}`, agent: key, start, end, prompt: clip(prompt, 1500), message: clip(message, 4000) }, 200);
   }
 
   // returns true when something changed
@@ -67,6 +79,7 @@ export function createTraceStore({ now = Date.now, pricing = null } = {}) {
         if (span) {
           span.end = Number.isFinite(ev.duration_ms) ? span.start + ev.duration_ms : at;
           span.status = name === 'PostToolUse' ? 'ok' : 'error';
+          span.result = brief(ev.tool_response ?? ev.error);
           s.open.delete(ev.tool_use_id); changed = true;
         }
         break;
@@ -81,12 +94,17 @@ export function createTraceStore({ now = Date.now, pricing = null } = {}) {
         const sub = agentOf(s, ev.agent_id ?? key, { ended: at });
         if (typeof ev.agent_transcript_path === 'string') s.paths[sub.key] = ev.agent_transcript_path;
         push(s.edges, { t: at, kind: 'return', from: sub.key, to: sub.parent ?? sid, text: clip(ev.last_assistant_message) }, MAX_EDGES);
+        recordTurn(s, sub.key, sub.started, at, s.edges.findLast(e => e.kind === 'delegate' && e.to === sub.key)?.text, ev.last_assistant_message);
         changed = true; break;
       }
       case 'Notification':
         if (!s.wait) { s.wait = { id: `wait-${at}`, agent: key, kind: 'wait', tool: 'waiting for you', start: at, end: null, status: 'open', sig: 'wait', summary: clip(ev.message, 120) }; push(s.spans, s.wait, MAX_SPANS); }
         changed = true; break;
-      case 'Stop': changed = true; break;
+      case 'Stop': {
+        const since = s.edges.findLast(e => e.kind === 'prompt')?.t ?? s.started;
+        recordTurn(s, sid, since, at, s.edges.findLast(e => e.kind === 'prompt')?.text, ev.last_assistant_message);
+        changed = true; break;
+      }
       case 'SessionEnd': s.ended = at; for (const x of s.agents.values()) x.ended ??= at; changed = true; break;
     }
     return changed;
@@ -113,6 +131,7 @@ export function createTraceStore({ now = Date.now, pricing = null } = {}) {
   }
 
   const clearDemo = () => { for (const sid of [...sessions.keys()]) if (sid.startsWith('demo-')) sessions.delete(sid); };
+  const addJudgement = (sid, j) => { const s = sessions.get(sid); if (s) { s.judgements = s.judgements.filter(x => x.turn !== j.turn); s.judgements.push(j); } };
   const raw = sid => sessions.get(sid);
   const sessionCost = s => [...s.agents.values()].reduce((n, a) => n + a.cost, 0);
 
@@ -120,7 +139,7 @@ export function createTraceStore({ now = Date.now, pricing = null } = {}) {
     const s = sessions.get(sid);
     if (!s) return null;
     return { sid: s.sid, project: s.project, cwd: s.cwd, started: s.started, ended: s.ended, now: now(),
-      agents: [...s.agents.values()], spans: s.spans, edges: s.edges, cost: sessionCost(s) };
+      agents: [...s.agents.values()], spans: s.spans, edges: s.edges, cost: sessionCost(s), turns: s.turns, judgements: s.judgements };
   }
   const list = () => [...sessions.values()].map(s => ({ sid: s.sid, project: s.project, started: s.started, ended: s.ended, agents: s.agents.size, spans: s.spans.length }))
     .sort((a, b) => b.started - a.started);
@@ -155,5 +174,5 @@ export function createTraceStore({ now = Date.now, pricing = null } = {}) {
     return { at, totals: tot, agents: agents.sort((a, b) => b.tool_ms - a.tool_ms), tools: [...tools.values()].sort((a, b) => b.total_ms - a.total_ms), heat };
   }
 
-  return { onEvent, addUsage, view, list, metrics, raw, sessionCost, clearDemo };
+  return { onEvent, addUsage, addJudgement, view, list, metrics, raw, sessionCost, clearDemo };
 }

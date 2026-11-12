@@ -58,3 +58,19 @@ main > .panel h2 .sub { margin-left: 10px; color: var(--metal); font-weight: 400
 .bar.hot .fill i { background: var(--warn); }
 .bar .num { color: var(--metal); white-space: nowrap; }
 @media (max-width: 760px) { .bar { grid-template-columns: 110px 1fr; } .bar .num { grid-column: 1 / -1; } }
+
+/* AI judge: turns and verdicts */
+.turn { padding: 10px 12px; margin-bottom: 8px; background: var(--panel); border-left: 5px solid var(--c, var(--line)); }
+.turn .head { display: flex; gap: 10px; align-items: baseline; font: 400 9px/1.2 var(--px); letter-spacing: 0.05em; color: var(--metal); }
+.turn .head b { color: var(--c); font-weight: 400; }
+.turn .ask { margin: 6px 0 2px; font: 400 11px/1.5 ui-monospace, "SF Mono", Menlo, monospace; color: var(--metal); overflow-wrap: anywhere; }
+.turn .say { margin: 0; font: 400 12px/1.5 ui-monospace, "SF Mono", Menlo, monospace; color: var(--text); overflow-wrap: anywhere; }
+.verdict { margin-top: 8px; padding: 8px 10px; background: #0b121e; border: 1px solid var(--line); font: 400 11px/1.5 ui-monospace, "SF Mono", Menlo, monospace; }
+.verdict .chips { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 6px; }
+.verdict .chip { font-size: 9px; }
+.verdict ul { margin: 6px 0 0; padding-left: 16px; }
+.verdict li.contradicted, .verdict li.unsupported { color: var(--bad); }
+.verdict li.supported { color: var(--ok); }
+.verdict small { display: block; margin-top: 6px; color: #5d6b80; font-family: var(--px); font-size: 9px; letter-spacing: 0.05em; }
+.turn button { margin-top: 8px; padding: 6px 9px; font-size: 10px; }
+.verdict .dim { color: #5d6b80; }

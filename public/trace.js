@@ -12,7 +12,12 @@ const clock = ms => { const s = Math.max(0, Math.round(ms / 1000)); return `${St
 const dur = ms => ms < 1000 ? `${Math.round(ms)} ms` : ms < 60000 ? `${(ms / 1000).toFixed(1)} s` : `${Math.floor(ms / 60000)} m ${Math.round(ms % 60000 / 1000)} s`;
 const toolColor = tool => ROOM[isTask(tool) ? 'meet' : TOOL_STATION[tool] ?? 'desks']?.color ?? '#9aa7b5';
 
-let sid = new URLSearchParams(location.search).get('sid'), data = null;
+let sid = new URLSearchParams(location.search).get('sid'), data = null, judgeMode = 'off';
+
+async function loadSettings() {
+  try { judgeMode = (await (await fetch(API.settings)).json()).judge.mode; } catch { /* keep last */ }
+}
+window.addEventListener('orbit:settings', async () => { await loadSettings(); if (data) render(); });
 
 async function load() {
   try { data = await (await fetch(`${API.trace}${sid ? `?sid=${encodeURIComponent(sid)}` : ''}`)).json(); } catch { return; }
@@ -26,6 +31,29 @@ function nameOf(t, key) {
   if (key === 'user') return 'YOU';
   const a = t.agents.find(x => x.key === key);
   return a ? (a.kind === 'main' ? a.name : `SUB ${a.agent_type ?? key.slice(0, 4)}`) : key.slice(0, 6);
+}
+
+const RISK_COLOR = { low: '#5de6a0', medium: '#ffc233', high: '#ff4d4d' };
+function verdictHtml(j) {
+  if (j.error) return `<div class="verdict"><span class="err">${esc(j.error)}</span></div>`;
+  const v = j.verdict;
+  return `<div class="verdict"><div class="chips">
+    <span class="chip" style="--s:${RISK_COLOR[v.hallucination_risk]}">HALLUCINATION RISK: ${v.hallucination_risk.toUpperCase()}</span>
+    <span class="chip" style="--s:${v.consistency === 'ok' ? '#5de6a0' : '#ff4d4d'}">${v.consistency === 'ok' ? 'CONSISTENT' : 'CONTRADICTION'}</span>
+    <span class="chip" style="--s:${v.toxicity === 'none' ? '#5de6a0' : v.toxicity === 'mild' ? '#ffc233' : '#ff4d4d'}">TOXICITY: ${v.toxicity.toUpperCase()}</span></div>
+    ${esc(v.summary)}${v.claims.length ? `<ul>${v.claims.map(c => `<li class="${c.verdict}"><b>${esc(c.verdict)}</b> · ${esc(c.claim)}${c.evidence ? ` <span class="dim">(${esc(c.evidence)})</span>` : ''}</li>`).join('')}</ul>` : ''}
+    <small>${esc(j.model)} · ${dur(j.ms)} · ≈ $${(j.cost_usd ?? 0).toFixed(4)}${j.auto ? ' · automatic' : ''} · a model's opinion, not proof</small></div>`;
+}
+
+function turnsHtml(t) {
+  const byTurn = new Map(t.judgements.map(j => [j.turn, j]));
+  const list = [...t.turns].reverse().slice(0, 30);
+  return `<section class="panel"><h2>Answers <span class="sub">${judgeMode === 'off' ? 'AI judge is off (switch in the header)' : 'check an answer with the AI judge'}</span></h2>${list.length ? list.map(x => {
+    const j = byTurn.get(x.id);
+    return `<div class="turn" style="--c:${agentColor(x.agent)}"><div class="head"><b>${esc(nameOf(t, x.agent))}</b><span>+${clock(x.end - t.started)}</span></div>
+      ${x.prompt ? `<p class="ask">asked: ${esc(x.prompt.slice(0, 220))}</p>` : ''}<p class="say">${esc(x.message.slice(0, 500))}${x.message.length > 500 ? '…' : ''}</p>
+      ${j ? verdictHtml(j) : judgeMode !== 'off' ? `<button type="button" data-turn="${esc(x.id)}">Check with AI</button>` : ''}</div>`;
+  }).join('') : '<p class="empty-note">No finished answer yet.</p>'}</section>`;
 }
 
 function renderPicker() {
@@ -94,9 +122,21 @@ function render() {
   renderPicker();
   const t = data.trace;
   $('main').innerHTML = t
-    ? alertsHtml(t) + graphHtml(t) + timelineHtml(t) + logHtml(t)
+    ? alertsHtml(t) + turnsHtml(t) + graphHtml(t) + timelineHtml(t) + logHtml(t)
     : '<section class="panel"><p class="empty-note">No session traced yet. Start a Claude Code session with the hooks, or press “Spawn Demo Agents”.</p></section>';
 }
+
+$('main').addEventListener('click', async ev => {
+  const btn = ev.target.closest('button[data-turn]');
+  if (!btn) return;
+  btn.disabled = true; btn.textContent = 'Checking…';
+  try {
+    const r = await fetch(API.judge, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ sid: data.trace.sid, turn: btn.dataset.turn }) });
+    if (!r.ok) { btn.textContent = (await r.json()).error ?? 'Failed'; return; }
+  } catch { btn.textContent = 'Failed'; return; }
+  window.dispatchEvent(new Event('orbit:judged'));
+  load();
+});
 
 connectLink({
   onStatus: on => $('link').classList.toggle('on', on),
@@ -104,4 +144,4 @@ connectLink({
 });
 $('demo').addEventListener('click', () => { fetch(API.demo, { method: 'POST' }).catch(() => {}); });
 setInterval(() => { if (data?.trace && !data.trace.ended) load(); }, 5000);   // keep running bars growing
-load();
+loadSettings().then(load);

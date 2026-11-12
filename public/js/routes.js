@@ -13,6 +13,8 @@ export const API = {
   taskStatus: '/api/tasks/:id/status',
   trace: '/api/trace',
   metrics: '/api/metrics',
+  settings: '/api/settings',
+  judge: '/api/judge',
   demo: '/demo',
   ws: '/ws',
 };

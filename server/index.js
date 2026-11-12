@@ -14,6 +14,8 @@ import { createGuardrails } from './guardrails.js';
 import { createPricing } from './prices.js';
 import { resolveTranscript, readUsage } from './transcript.js';
 import { createVerifier } from './verifier.js';
+import { createSettings } from './settings.js';
+import { createJudge } from './judge.js';
 
 const PORT = 4111;
 const HOSTS = ['127.0.0.1', '::1'];   // "localhost" can resolve to either; never listen on anything reachable from the network
@@ -94,6 +96,8 @@ function readTranscripts(sid, force) {
   }
 }
 
+const settings = createSettings({ file: path.join(rootDir, 'data', 'settings.json') });
+const judge = createJudge({ trace: traceStore, settings, guard, bin: CLAUDE_BIN, onJudged: () => broadcast({ type: 'trace' }) });
 const verifier = createVerifier({ trace: traceStore, guard, file: path.join(rootDir, 'data', 'baseline.json') });
 
 function trackSession(event) {
@@ -120,6 +124,7 @@ function ingest(event) {
   taskStore.onEvent(event);
   const traced = traceStore.onEvent(event);
   verifier.onEvent(event);
+  judge.maybeAuto(event);
   if (traced) {
     const name = event.hook_event_name;
     readTranscripts(event.session_id, name === 'Stop' || name === 'SubagentStop' || name === 'SessionEnd');
@@ -275,6 +280,18 @@ app.get(API.trace, (req, res) => {
   res.json({ sessions: list, trace: sid ? traceStore.view(sid) : null, alerts: guard.active() });
 });
 app.get(API.metrics, (_req, res) => res.json({ ...traceStore.metrics(), alerts: guard.active(), pricing_note: 'Costs are estimates from token counts; exact prices go in data/prices.json.' }));
+app.get(API.settings, (_req, res) => res.json(settings.get()));
+app.post(API.settings, sameOrigin, (req, res) => {
+  const r = settings.update(req.body);
+  res.status(r.error ? 400 : 200).json(r.error ? r : settings.get());
+});
+// check one finished turn with the AI judge (only when the judge is on)
+app.post(API.judge, sameOrigin, async (req, res) => {
+  const { sid, turn } = req.body ?? {};
+  if (typeof sid !== 'string' || typeof turn !== 'string') return res.status(400).json({ error: 'sid and turn required' });
+  const r = await judge.judgeTurn(sid, turn);
+  res.status(r.code ?? 200).json(r);
+});
 app.get(API.tasks, (_req, res) => res.json({ statuses: STATUSES, ...taskStore.snapshot() }));
 app.post(API.taskStatus, sameOrigin, (req, res) => {
   const result = taskStore.setStatus(req.params.id, req.body?.status);

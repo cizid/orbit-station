@@ -120,3 +120,8 @@ button.danger:hover { background: var(--bad); color: var(--hull); }
 .station-page #nav { position: fixed; top: 14px; left: 14px; }
 .lbl .tag { display: flex; flex-direction: column; align-items: center; gap: 3px; }
 .lbl .tag em { font: 400 8px/1 var(--px); font-style: normal; letter-spacing: 0.08em; }
+
+#nav .judge { display: inline-flex; align-items: center; gap: 7px; margin-left: 6px; font: 400 10px/1 var(--px); letter-spacing: 0.06em; text-transform: uppercase; color: var(--metal); }
+#nav .judge select { font: 400 10px/1 var(--px); color: var(--holo); background: var(--hull); border: 2px solid var(--line); padding: 6px; }
+#nav .judge select:focus-visible { outline: 2px solid var(--warn); }
+#judge-use { color: var(--warn); }

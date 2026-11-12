@@ -21,6 +21,7 @@ const kinds = r => r.map(a => a.kind);
 test('claims are found in English and German, negations are ignored', () => {
   assert.deepEqual(claimsIn('All tests pass and the build succeeds.').map(c => c.kind).sort(), ['build', 'tests']);
   assert.deepEqual(claimsIn('Alle Tests laufen durch, ich habe committet.').map(c => c.kind).sort(), ['commit', 'tests']);
+  assert.deepEqual(claimsIn('Ich schreibe nicht „The command succeeded and all tests pass." weil das falsch wäre, und `all tests pass` ist auch nur ein Zitat.'), []);
   assert.deepEqual(claimsIn('Not committed yet. Noch nicht gepusht. Tests should pass later.'), []);
 });
 

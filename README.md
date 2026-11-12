@@ -96,5 +96,12 @@ Hooks to enable on top of the basic ones: `PostToolUse`, `PostToolUseFailure`, `
   - *Weakened tests:* an edit to a test file removes assertions or test cases, skips tests or silences checks; `rm` of test files.
   - *Regression:* tests that were green and fail after edits; a turn needing far more tool calls or time than this project's usual (baseline in `data/baseline.json`).
   These find provable problems, not everything: no alert is not proof that an answer is right.
-- Not built: a model that rates semantic hallucination or toxicity. Free local options exist (e.g. an entailment model like HHEM via ONNX, ~400 MB, CPU) but they only judge whether text follows from a given source, not whether it is true.
+- **AI judge (optional, OFF by default).** Switch in the header of every page: *Off* / *On request* / *Auto*.
+  - *On request:* a "Check with AI" button under each finished answer on the Trace page.
+  - *Auto:* checks only answers that make claims (tests pass, build ok, committed…) or already tripped a check. Quiet answers cost nothing.
+  - It reads one turn (your prompt, the agent's tool log with short result excerpts, its final message) and rates each claim (supported / unsupported / contradicted / unclear), hallucination risk, consistency and toxicity. A serious finding raises a `JUDGE` alert like the other checks.
+  - It runs `claude -p` with a small model (`haiku`), **no tools, no saved session, none of your settings or hooks**, in a temp folder. It uses your Claude subscription, not an API key: about $0.001 at list price and 5-10 s per check. A daily limit (default 20) and a usage counter next to the switch keep it in check. Settings live in `data/settings.json`.
+  - The text it reads is untrusted: it is fenced so the agent cannot instruct the judge, and the answer is accepted only if it is valid JSON with known values.
+  - It is a model's opinion, not proof. The evidence checks above are the ones to trust first.
+- Not built: a free local model for semantic hallucination. Options exist (e.g. an entailment model like HHEM via ONNX, ~400 MB, CPU) but they only judge whether text follows from a given source, not whether it is true.
 - Trace data lives in memory (gone after a restart). Prompts and tool inputs are kept truncated, for the local pages only; transcripts are only read from `~/.claude/projects`.
