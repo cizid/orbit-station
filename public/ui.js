@@ -7,8 +7,10 @@
   const $ = id => document.getElementById(id);
 
   // Claude Code's permission prompt takes these keystrokes.
-  const ALLOW_KEYS = 'y\r';
-  const DENY_KEYS = 'n\r';
+  // Claude Code's permission menu (checked against the real CLI): "1" picks Yes; Esc cancels = deny.
+  // "n" + Enter would NOT deny: Enter confirms the preselected "1. Yes".
+  const ALLOW_KEYS = '1';
+  const DENY_KEYS = '\x1b';
   const LAST_CWD_KEY = 'orbit.lastCwd';
 
   const terms = new Map();   // session_id -> { term, fit, el, opened }
@@ -69,9 +71,6 @@
     const id = O.selectedId, dock = $('dock');
     if (!id) {
       dock.hidden = true;
-      document.body.style.setProperty('--dock-h', '0px');
-      O.reservedH = 0;
-      O.fit();
       dropStaleTerms();
       return;
     }
@@ -94,10 +93,6 @@
       dock.hidden = false;
     }
 
-    const h = dock.offsetHeight + 24;
-    O.reservedH = h;
-    document.body.style.setProperty('--dock-h', h + 'px');
-    O.fit();
     requestAnimationFrame(fitSelected);
     dropStaleTerms();
   }
@@ -213,16 +208,16 @@
   }
 
   function placeActions() {
-    const r = O.canvas.getBoundingClientRect(), s = r.width / O.W;
     const wanted = new Set();
     for (const a of O.agents.values()) {
       if (a.bubble !== 'alert' || a.leaving || !O.managed.has(a.id)) continue;
       wanted.add(a.id);
       let row = rows.get(a.id);
       if (!row) { row = makeRow(a); rows.set(a.id, row); }
-      const [ax, ay] = O.anchor(a);
-      row.style.left = r.left + ax * s + 'px';
-      row.style.top = Math.max(r.top + 30, r.top + ay * s) + 'px';
+      const p = O.screenAnchor(a);
+      row.style.display = p.visible ? '' : 'none';
+      row.style.left = p.x + 'px';
+      row.style.top = Math.max(70, p.y - 62) + 'px';   // above tag and bubble
     }
     for (const [id, row] of rows) {
       if (!wanted.has(id)) { row.remove(); rows.delete(id); }

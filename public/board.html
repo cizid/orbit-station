@@ -1,0 +1,39 @@
+<!doctype html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Orbit Board</title>
+<link rel="icon" href="data:,">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Silkscreen:wght@400;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="style.css">
+<link rel="stylesheet" href="board.css">
+</head>
+<body class="board-page">
+<header class="top">
+  <nav id="nav" aria-label="Pages"></nav>
+  <h1>Mission Board</h1>
+  <span class="spacer"></span>
+  <span id="link" aria-label="Connection"></span>
+  <button id="demo" type="button">Spawn Demo Agents</button>
+</header>
+
+<main>
+  <section id="cols" aria-label="Tasks"></section>
+
+  <section class="panel" aria-labelledby="crew-h">
+    <h2 id="crew-h">Crew performance</h2>
+    <div class="scroll"><table id="crew"></table></div>
+  </section>
+
+  <section class="panel legend" aria-labelledby="legend-h">
+    <h2 id="legend-h">Agent states</h2>
+    <ul id="legend"></ul>
+  </section>
+</main>
+
+<script type="module" src="board.js"></script>
+</body>
+</html>

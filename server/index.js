@@ -6,14 +6,17 @@ import path from 'node:path';
 import express from 'express';
 import pty from 'node-pty';
 import { WebSocketServer, WebSocket } from 'ws';
+import { PAGES, API } from '../public/js/routes.js';
+import { stateOf } from '../public/js/states.js';
+import { createTaskStore, STATUSES } from './tasks.js';
 
 const PORT = 4111;
-const HOST = '127.0.0.1';
+const HOSTS = ['127.0.0.1', '::1'];   // "localhost" can resolve to either; never listen on anything reachable from the network
 const CLAUDE_BIN = process.env.CLAUDE_BIN || 'claude';
 const MAX_AGENTS = 12;
 const MAX_INPUT_BYTES = 10 * 1024;
 // A page that can reach the WebSocket can spawn processes, so only our own origin may.
-const ALLOWED_HOSTS = new Set([`localhost:${PORT}`, `127.0.0.1:${PORT}`]);
+const ALLOWED_HOSTS = new Set([`localhost:${PORT}`, `127.0.0.1:${PORT}`, `[::1]:${PORT}`]);
 const SESSION_TTL_MS = 10 * 60 * 1000;
 const SWEEP_INTERVAL_MS = 30 * 1000;
 const DEMO_STEP_MS = 4000;
@@ -22,10 +25,8 @@ const rootDir = path.join(path.dirname(fileURLToPath(import.meta.url)), '..');
 const publicDir = path.join(rootDir, 'public');
 
 const app = express();
-const server = createServer(app);
 const wss = new WebSocketServer({
-  server,
-  path: '/ws',
+  noServer: true,
   verifyClient: ({ origin }) => {
     if (!origin) return true; // non-browser clients (scripts, tests)
     try { return ALLOWED_HOSTS.has(new URL(origin).host); } catch { return false; }
@@ -34,7 +35,7 @@ const wss = new WebSocketServer({
 
 app.use(express.json({ limit: '1mb' }));
 app.use(express.static(publicDir));
-app.use('/vendor/xterm', express.static(path.join(rootDir, 'node_modules/@xterm/xterm')));
+app.use('/vendor/xterm',express.static(path.join(rootDir, 'node_modules/@xterm/xterm')));
 app.use('/vendor/xterm-fit', express.static(path.join(rootDir, 'node_modules/@xterm/addon-fit')));
 
 // --- Session tracker -------------------------------------------------------
@@ -49,6 +50,11 @@ function broadcast(message) {
   }
 }
 
+const taskStore = createTaskStore({
+  file: path.join(rootDir, 'data', 'tasks.json'),
+  onChange: () => broadcast({ type: 'tasks', ...taskStore.snapshot() }),
+});
+
 function trackSession(event) {
   const { session_id, hook_event_name, tool_name, cwd } = event;
   if (hook_event_name === 'SessionEnd') {
@@ -61,6 +67,7 @@ function trackSession(event) {
     session_id,
     cwd: cwd ?? prev?.cwd ?? null,
     last_event: hook_event_name,
+    state: stateOf(event) ?? prev?.state ?? 'working',
     tool_name: tool_name ?? null,
     started_at: prev?.started_at ?? now,
     last_seen: now,
@@ -69,6 +76,7 @@ function trackSession(event) {
 
 function ingest(event) {
   trackSession(event);
+  taskStore.onEvent(event);
   broadcast({ type: 'event', event, sessions: [...sessions.values()] });
 }
 
@@ -77,11 +85,9 @@ setInterval(() => {
   for (const [id, s] of sessions) {
     if (s.last_seen < cutoff && !agentPtys.has(id)) {
       sessions.delete(id);
-      broadcast({
-        type: 'event',
-        event: { session_id: id, hook_event_name: 'SessionEnd', reason: 'timeout', cwd: s.cwd },
-        sessions: [...sessions.values()],
-      });
+      const event = { session_id: id, hook_event_name: 'SessionEnd', reason: 'timeout', cwd: s.cwd };
+      taskStore.onEvent(event);
+      broadcast({ type: 'event', event, sessions: [...sessions.values()] });
     }
   }
 }, SWEEP_INTERVAL_MS).unref();
@@ -162,6 +168,7 @@ wss.on('connection', (ws) => {
   ws.send(JSON.stringify({
     type: 'snapshot',
     sessions: [...sessions.values()],
+    ...taskStore.snapshot(),
     agents: [...agentPtys].map(([session_id, a]) => ({ session_id, cwd: a.cwd, buffer: a.buffer })),
   }));
 
@@ -179,6 +186,7 @@ wss.on('connection', (ws) => {
 });
 
 function shutdown() {
+  taskStore.flush();
   for (const { term } of agentPtys.values()) term.kill();
   process.exit(0);
 }
@@ -200,6 +208,27 @@ app.get('/sessions', (_req, res) => {
   res.json([...sessions.values()]);
 });
 
+// Pages come from the shared route table; API calls from the browser must come from our own origin.
+for (const page of PAGES) {
+  if (page.path !== '/') app.get(page.path, (_req, res) => res.sendFile(path.join(publicDir, page.file)));
+}
+
+function sameOrigin(req, res, next) {
+  const { origin } = req.headers;
+  try { if (!origin || ALLOWED_HOSTS.has(new URL(origin).host)) return next(); } catch { /* fall through */ }
+  res.status(403).json({ error: 'forbidden origin' });
+}
+
+app.get(API.tasks, (_req, res) => res.json({ statuses: STATUSES, ...taskStore.snapshot() }));
+app.post(API.taskStatus, sameOrigin, (req, res) => {
+  const result = taskStore.setStatus(req.params.id, req.body?.status);
+  res.status(result.code ?? 200).json(result);
+});
+app.delete(API.task, sameOrigin, (req, res) => {
+  if (!taskStore.remove(req.params.id)) return res.status(404).json({ error: 'unknown task' });
+  res.json({ ok: true });
+});
+
 // --- Demo ------------------------------------------------------------------
 
 const DEMO_AGENTS = [
@@ -208,11 +237,25 @@ const DEMO_AGENTS = [
   { session_id: 'demo-agent-3', cwd: '/demo/gamma' },
 ];
 
+// What the demo agents put on their todo list; `n` is the lap, so every lap creates fresh cards.
+const demoTodos = (name, n, done, doing) => ({
+  hook_event_name: 'PreToolUse', tool_name: 'TodoWrite',
+  tool_input: { todos: [
+    { content: `${name}: read the code (${n})`, status: done >= 1 ? 'completed' : doing === 0 ? 'in_progress' : 'pending', activeForm: 'Reading the code' },
+    { content: `${name}: implement change (${n})`, status: done >= 2 ? 'completed' : doing === 1 ? 'in_progress' : 'pending', activeForm: 'Implementing the change' },
+    { content: `${name}: run the tests (${n})`, status: doing === 2 ? 'in_progress' : 'pending', activeForm: 'Running the tests' },
+  ] },
+});
 const DEMO_STEPS = [
   { hook_event_name: 'SessionStart' },
+  (a, n) => demoTodos(a, n, 0, 0),
   { hook_event_name: 'PreToolUse', tool_name: 'Read', tool_input: { file_path: 'src/main.js' } },
+  (a, n) => demoTodos(a, n, 1, 1),
+  { hook_event_name: 'PreToolUse', tool_name: 'Task', tool_input: { description: 'Review src/main.js' } },
   { hook_event_name: 'PreToolUse', tool_name: 'Edit', tool_input: { file_path: 'src/main.js', old_string: 'a', new_string: 'b' } },
   { hook_event_name: 'PreToolUse', tool_name: 'Bash', tool_input: { command: 'npm test' } },
+  { hook_event_name: 'SubagentStop' },
+  (a, n) => demoTodos(a, n, 2, 2),
   { hook_event_name: 'Notification', message: 'Claude needs your permission' },
   { hook_event_name: 'Stop' },
 ];
@@ -221,11 +264,13 @@ let demoTimers = [];
 
 function startDemo() {
   demoTimers.forEach(clearInterval);
+  taskStore.clearDemo();
   demoTimers = DEMO_AGENTS.map((agent, i) => {
-    let step = 0;
+    let step = 0, lap = 1;
     const tick = () => {
-      ingest({ ...agent, ...DEMO_STEPS[step] });
-      step = (step + 1) % DEMO_STEPS.length;
+      const s = DEMO_STEPS[step];
+      ingest({ ...agent, ...(typeof s === 'function' ? s(path.basename(agent.cwd).toUpperCase(), lap) : s) });
+      if (++step === DEMO_STEPS.length) { step = 0; lap++; }
     };
     // Stagger agents so they don't move in lockstep.
     const timer = setTimeout(() => {
@@ -236,13 +281,26 @@ function startDemo() {
   });
 }
 
-app.post('/demo', (_req, res) => {
+app.post(API.demo, (_req, res) => {
   startDemo();
   res.json({ ok: true, agents: DEMO_AGENTS.map((a) => a.session_id) });
 });
 
 // ---------------------------------------------------------------------------
 
-server.listen(PORT, HOST, () => {
-  console.log(`http://localhost:${PORT}`);
-});
+taskStore.clearDemo();   // fake cards from an earlier demo run are clutter after a restart
+
+// one HTTP server per loopback address, all sharing the app and the WebSocket server
+for (const host of HOSTS) {
+  const server = createServer(app);
+  server.on('upgrade', (req, socket, head) => {
+    if (new URL(req.url, 'http://localhost').pathname !== API.ws) return socket.destroy();
+    wss.handleUpgrade(req, socket, head, (ws) => wss.emit('connection', ws, req));
+  });
+  server.on('error', (err) => {
+    if (host === '::1') console.warn(`no IPv6 loopback (${err.code}); only http://127.0.0.1:${PORT} works`);
+    else { console.error(err.message); process.exit(1); }
+  });
+  server.listen(PORT, host, () => console.log(`http://${host.includes(':') ? `[${host}]` : host}:${PORT}`));
+}
+console.log(`open http://localhost:${PORT}`);
