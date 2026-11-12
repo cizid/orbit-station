@@ -12,13 +12,14 @@ export const LIMITS = {
 };
 
 // what the station shows on the name tag
-const SHORT = { loop: 'LOOP', errors: 'ERRORS', rate: 'RATE', stuck: 'STUCK', 'handoff-loop': 'HANDOFF', budget: 'BUDGET', 'unproven-claim': 'CLAIM?', 'missing-file': 'FILE?', 'unknown-import': 'IMPORT?', 'test-weakening': 'WEAK TEST', 'tests-red': 'TESTS RED', drift: 'DRIFT' };
+const SHORT = { loop: 'LOOP', errors: 'ERRORS', rate: 'RATE', stuck: 'STUCK', 'handoff-loop': 'HANDOFF', budget: 'BUDGET', 'unproven-claim': 'CLAIM?', 'missing-file': 'FILE?', 'unknown-import': 'IMPORT?', 'test-weakening': 'WEAK TEST', 'tests-red': 'TESTS RED', drift: 'DRIFT', 'conflict-risk': 'CONFLICT?', 'merge-conflict': 'MERGE!', judge: 'JUDGE' };
 
 export function createGuardrails({ trace, now = Date.now, limits = LIMITS, onAlert = () => {} }) {
   const alerts = [], lastRaised = new Map();
 
-  function raise(sid, agent, kind, level, msg) {
-    const key = `${sid}|${agent}|${kind}`, at = now();
+  // with a `topic` (e.g. project + file) the cooldown is shared by everyone, so one problem is raised once
+  function raise(sid, agent, kind, level, msg, topic = '') {
+    const key = topic ? `${kind}|${topic}` : `${sid}|${agent}|${kind}`, at = now();
     if (at - (lastRaised.get(key) ?? -Infinity) < limits.cooldownMs) return;
     lastRaised.set(key, at);
     const alert = { id: `${at}-${alerts.length}`, sid, agent, kind, short: SHORT[kind] ?? kind.toUpperCase(), level, msg, at };

@@ -125,3 +125,6 @@ button.danger:hover { background: var(--bad); color: var(--hull); }
 #nav .judge select { font: 400 10px/1 var(--px); color: var(--holo); background: var(--hull); border: 2px solid var(--line); padding: 6px; }
 #nav .judge select:focus-visible { outline: 2px solid var(--warn); }
 #judge-use { color: var(--warn); }
+#hire select { font: 13px ui-monospace, "SF Mono", Menlo, monospace; color: var(--text); background: #05070b; border: 2px solid var(--line); padding: 6px 8px; }
+#hire label.check { flex-direction: row; align-items: center; }
+#hire input[type=checkbox] { flex: none; width: 16px; height: 16px; }

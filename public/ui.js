@@ -141,7 +141,7 @@
     pendingHire = true;
     $('hire-error').textContent = '';
     $('hire').querySelector('[type=submit]').disabled = true;
-    O.send({ type: 'spawn_agent', cwd, ...(prompt && { prompt }) });
+    O.send({ type: 'spawn_agent', cwd, role: $('hire-role').value, worktree: $('hire-wt').checked, ...(prompt && { prompt }) });
   });
 
   // ----------------------------------------------- server -> UI messages

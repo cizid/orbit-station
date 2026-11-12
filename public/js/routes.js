@@ -2,6 +2,7 @@
 
 export const PAGES = [
   { id: 'station', path: '/',      file: 'index.html', label: 'Station' },
+  { id: 'agents',  path: '/agents', file: 'agents.html', label: 'Agents' },
   { id: 'board',   path: '/board', file: 'board.html', label: 'Board' },
   { id: 'trace',   path: '/trace', file: 'trace.html', label: 'Trace' },
   { id: 'metrics', path: '/metrics', file: 'metrics.html', label: 'Metrics' },
@@ -11,6 +12,7 @@ export const API = {
   tasks: '/api/tasks',
   task: '/api/tasks/:id',
   taskStatus: '/api/tasks/:id/status',
+  agents: '/api/agents',
   trace: '/api/trace',
   metrics: '/api/metrics',
   settings: '/api/settings',

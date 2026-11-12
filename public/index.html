@@ -52,6 +52,8 @@
     <label>Project folder
       <input id="hire-cwd" type="text" placeholder="/Users/you/projects/my-app" required spellcheck="false">
     </label>
+    <label>Role <select id="hire-role"></select></label>
+    <label class="check"><input id="hire-wt" type="checkbox"> Own git worktree <em>(own working copy and branch)</em></label>
     <label><span>First task <em>(optional)</em></span>
       <textarea id="hire-task" rows="3" placeholder="What should they work on?"></textarea>
     </label>
@@ -66,7 +68,7 @@
 <script src="vendor/xterm/lib/xterm.js"></script>
 <script src="vendor/xterm-fit/lib/addon-fit.js"></script>
 <script type="module" src="game.js"></script>
-<script type="module">import { mountNav } from "./js/shell.js"; mountNav("station");</script>
+<script type="module">import { mountNav } from "./js/shell.js"; import { ROLES } from "./js/roles.js"; mountNav("station"); document.getElementById("hire-role").innerHTML = Object.entries(ROLES).map(([k, r]) => `<option value="${k}">${r.label}</option>`).join("");</script>
 <script type="module" src="ui.js"></script>
 </body>
 </html>

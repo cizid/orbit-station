@@ -93,7 +93,7 @@ export function createAgents({ labelsEl, Orbit, hooks }) {
     let a = agents.get(ev.session_id);
     if (routeEvent(ev).action === 'leave') { if (a) leave(a); return; }
     if (!a) { a = makeAgent(ev); hooks.onPortal(); }
-    else if (ev.cwd) { a.name = projectName(ev.cwd) || a.name; a.cwd = ev.cwd; }
+    else if (ev.cwd) { a.name = projectName(ev.project || ev.cwd) || a.name; a.cwd = ev.cwd; }
     if (a.leaving) return;
     const now = a.last = performance.now(), sub = agents.get(a.subId);
     const r = routeEvent(ev, { hasSub: !!sub });
