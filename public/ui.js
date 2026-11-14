@@ -67,6 +67,19 @@
     $('dock-name').textContent = a ? a.name : id.slice(0, 8).toUpperCase();
   }
 
+  // what the selected agent works on: card title plus the line about what it does right now
+  let taskList = [];
+  function updateTask() {
+    const id = O.selectedId, el = $('dock-task');
+    const t = id && taskList.find(x => x.session_id === id && x.status === 'progress');
+    el.hidden = !t;
+    if (!t) return;
+    el.textContent = '';
+    const b = document.createElement('b'); b.textContent = t.title;
+    const d = document.createElement('span'); d.textContent = ' — ' + (t.doing || t.active || 'working');
+    el.append(b, d);
+  }
+
   function refreshDock() {
     const id = O.selectedId, dock = $('dock');
     if (!id) {
@@ -75,7 +88,7 @@
       return;
     }
     const managed = O.managed.has(id);
-    updateHeader();
+    updateHeader(); updateTask();
     $('dock-stop').hidden = !managed;
     $('dock-stop').disabled = false;
     $('dock-input').disabled = !managed;
@@ -148,6 +161,7 @@
   O.onMessage = msg => {
     switch (msg.type) {
       case 'snapshot':
+        taskList = msg.tasks || []; updateTask();
         for (const a of msg.agents || []) {
           O.managed.add(a.session_id);
           const t = getTerm(a.session_id);
@@ -156,6 +170,9 @@
         break;
       case 'event':
         if (msg.event.session_id === O.selectedId) updateHeader();
+        break;
+      case 'tasks':
+        taskList = msg.tasks || []; updateTask();
         break;
       case 'agent_spawned':
         O.managed.add(msg.session_id);

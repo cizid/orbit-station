@@ -13,7 +13,7 @@ body.board-page {
 }
 
 .top { display: flex; align-items: center; gap: 14px; padding: 14px 0; flex-wrap: wrap; }
-.top h1 { margin: 0; font: 700 18px/1 var(--px); letter-spacing: 0.12em; text-transform: uppercase; color: var(--text); }
+.top h1 { margin: 0; font: 700 18px/1 var(--px); letter-spacing: 0.03em; text-transform: uppercase; color: var(--text); }
 .spacer { flex: 1; }
 main { display: grid; gap: 18px; max-width: 1500px; margin: 0 auto; }
 
@@ -21,39 +21,39 @@ main { display: grid; gap: 18px; max-width: 1500px; margin: 0 auto; }
 #cols { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; align-items: start; }
 .col { background: rgba(11, 15, 23, 0.92); border: 2px solid var(--line); border-top: 4px solid var(--c); min-height: 220px; }
 .col > header { display: flex; align-items: center; gap: 8px; padding: 10px 12px; border-bottom: 2px solid var(--line); }
-.col h2 { margin: 0; font: 700 12px/1 var(--px); letter-spacing: 0.1em; color: var(--c); }
-.col .count { margin-left: auto; min-width: 22px; padding: 3px 6px; text-align: center; font: 700 11px/1 var(--px); color: var(--hull); background: var(--c); }
+.col h2 { margin: 0; font: 700 12px/1 var(--px); letter-spacing: 0.03em; color: var(--c); }
+.col .count { margin-left: auto; min-width: 22px; padding: 3px 6px; text-align: center; font: 700 12px/1 var(--px); color: var(--hull); background: var(--c); }
 .cards { display: grid; gap: 10px; padding: 10px; }
-.empty { padding: 18px 8px; text-align: center; font: 400 10px/1.6 var(--px); color: #5d6b80; letter-spacing: 0.06em; }
+.empty { padding: 18px 8px; text-align: center; font: 500 12px/1.6 var(--px); color: #5d6b80; letter-spacing: 0.03em; }
 
 .card { position: relative; background: var(--panel); border: 2px solid var(--line); border-left: 5px solid var(--c); padding: 9px 10px; box-shadow: 3px 3px 0 #05080e; }
 .card.moved { animation: arrive 0.6s steps(6); }
 @keyframes arrive { 0% { transform: translateY(-10px); box-shadow: 0 0 0 3px var(--holo); } 100% { transform: none; } }
 .title { margin: 0 0 8px; font: 500 12px/1.45 ui-monospace, "SF Mono", Menlo, monospace; color: var(--text); overflow-wrap: anywhere; }
-.meta { display: flex; align-items: center; flex-wrap: wrap; gap: 6px; font: 400 9px/1 var(--px); letter-spacing: 0.06em; }
+.meta { display: flex; align-items: center; flex-wrap: wrap; gap: 6px; font: 500 12px/1 var(--px); letter-spacing: 0.03em; }
 .agent { display: inline-flex; align-items: center; gap: 5px; color: var(--text); text-decoration: none; padding: 3px 6px; background: var(--hull); border-bottom: 2px solid var(--c); }
 .agent:hover { background: var(--c); color: var(--hull); }
 .agent i { width: 7px; height: 7px; background: var(--c); }
 .chip { padding: 3px 6px; color: var(--hull); background: var(--s); }
 .chip.pulse { animation: blink 1s steps(2) infinite; }
 @keyframes blink { 50% { opacity: 0.45; } }
-.nums { display: flex; flex-wrap: wrap; gap: 4px 10px; margin-top: 8px; font: 400 9px/1 var(--px); letter-spacing: 0.05em; color: var(--metal); }
+.nums { display: flex; flex-wrap: wrap; gap: 4px 10px; margin-top: 8px; font: 500 12px/1 var(--px); letter-spacing: 0.03em; color: var(--metal); }
 .nums b { color: var(--text); font-weight: 400; }
-.chain { margin-top: 6px; font: 400 9px/1.4 var(--px); color: var(--holo); letter-spacing: 0.04em; }
+.chain { margin-top: 6px; font: 500 12px/1.4 var(--px); color: var(--holo); letter-spacing: 0.04em; }
 .acts { display: flex; gap: 6px; margin-top: 9px; }
-.acts button { padding: 6px 8px; font-size: 10px; box-shadow: 2px 2px 0 #05080e; }
+.acts button { padding: 6px 8px; font-size: 12px; box-shadow: 2px 2px 0 #05080e; }
 .acts .ok { color: var(--hull); background: var(--ok); border-color: var(--ok); }
 .acts .ok:hover { background: #9af2c6; }
 
 /* ---- panels ---- */
 .panel { background: rgba(11, 15, 23, 0.92); border: 2px solid var(--line); padding: 12px 14px; }
-.panel h2 { margin: 0 0 10px; font: 700 12px/1 var(--px); letter-spacing: 0.1em; color: var(--holo); text-transform: uppercase; }
+.panel h2 { margin: 0 0 10px; font: 700 12px/1 var(--px); letter-spacing: 0.03em; color: var(--holo); text-transform: uppercase; }
 .scroll { overflow-x: auto; }
-#crew { width: 100%; border-collapse: collapse; font: 400 10px/1 var(--px); letter-spacing: 0.05em; }
+#crew { width: 100%; border-collapse: collapse; font: 500 12px/1 var(--px); letter-spacing: 0.03em; }
 #crew th { text-align: left; padding: 6px 10px 8px 0; color: var(--metal); font-weight: 400; white-space: nowrap; border-bottom: 2px solid var(--line); }
 #crew td { padding: 9px 10px 9px 0; border-bottom: 1px solid #1a2433; white-space: nowrap; color: var(--text); }
 #crew td.agent-cell { display: flex; align-items: center; gap: 8px; }
-.legend ul { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 8px 16px; margin: 0; padding: 0; list-style: none; font: 400 10px/1.4 var(--px); color: var(--metal); }
+.legend ul { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 8px 16px; margin: 0; padding: 0; list-style: none; font: 500 12px/1.4 var(--px); color: var(--metal); }
 .legend .chip { margin-right: 8px; }
 
 /* ---- nav (shared with the station page) ---- */
@@ -63,20 +63,20 @@ main { display: grid; gap: 18px; max-width: 1500px; margin: 0 auto; }
 /* ---- readability: bigger titles, plain monospace for small text ---- */
 :root { --mono: ui-monospace, "SF Mono", Menlo, Consolas, monospace; }
 .top h1 { font-size: 20px; }
-.col h2, .panel h2 { font-size: 16px; letter-spacing: 0.05em; }
+.col h2, .panel h2 { font-size: 16px; letter-spacing: 0.03em; }
 .col .count { font-size: 14px; min-width: 28px; padding: 4px 8px; }
 .col > header { padding: 12px 14px; }
 .title { font-size: 14px; line-height: 1.5; }
-.meta { font-size: 11px; }
-.agent, .chip { font-size: 11px; letter-spacing: 0.04em; }
+.meta { font-size: 12px; }
+.agent, .chip { font-size: 12px; letter-spacing: 0.04em; }
 .nums, .chain { font: 500 12px/1.4 var(--mono); letter-spacing: 0; }
 .nums b { font-weight: 700; }
-.acts button { font-size: 11px; padding: 7px 10px; }
-.empty { font: 400 12px/1.6 var(--mono); letter-spacing: 0; }
+.acts button { font-size: 12px; padding: 7px 10px; }
+.empty { font: 500 12px/1.6 var(--mono); letter-spacing: 0; }
 #crew { font-size: 12px; }
-#crew th { font-size: 11px; letter-spacing: 0.06em; }
+#crew th { font-size: 12px; letter-spacing: 0.03em; }
 #crew td { font: 500 13px/1.3 var(--mono); }
-.legend ul { font: 400 12px/1.5 var(--mono); }
+.legend ul { font: 500 12px/1.5 var(--mono); }
 
 /* ---- columns fill the screen, the cards inside scroll ---- */
 #cols { align-items: stretch; }
@@ -86,3 +86,7 @@ main { display: grid; gap: 18px; max-width: 1500px; margin: 0 auto; }
 .cards::-webkit-scrollbar { width: 8px; }
 .cards::-webkit-scrollbar-thumb { background: var(--line); }
 @media (max-width: 1100px) { .col { height: 70vh; } }
+
+/* what the agent is doing right now, under the card title */
+.card .doing { margin: 4px 0 0; font: 400 12px/1.4 var(--px); color: var(--metal); overflow-wrap: anywhere; }
+.card .doing::before { content: "▸ "; color: var(--c); }

@@ -3,6 +3,7 @@ import { ROOM } from './js/consts.js';
 import { API } from './js/routes.js';
 import { connectLink } from './js/link.js';
 import { mountNav } from './js/shell.js';
+import { donut, columns, PALETTE } from './js/charts.js';
 
 mountNav('metrics');
 
@@ -50,9 +51,15 @@ function render() {
   const note = top ? `<p class="empty-note">Bottleneck: <b style="color:var(--warn)">${esc(top.tool)}</b> takes ${(top.total_ms / toolShare * 100).toFixed(0)}% of all tool time. On the station map this room glows warm.</p>` : '';
 
   const costBars = agentRows.length ? bars([...agentRows].sort((a, b) => b.cost - a.cost).slice(0, 10).map(a => ({ label: a.name, v: a.cost, color: agentColor(a.key), text: usd(a.cost, a.cost_known) })), '#ffc233') : '';
-  const al = m.alerts.length ? `<section class="panel"><h2>Guardrails <span class="sub">${m.alerts.length} active</span></h2><ul class="alerts">${m.alerts.map(a => `<li class="${a.level}"><span class="kind">${esc(a.kind)}</span><span>${esc(a.msg)}</span><time>${new Date(a.at).toLocaleTimeString()}</time></li>`).join('')}</ul></section>` : '';
+  const uniq = [...new Map(m.alerts.map(a => [a.kind + a.msg, a])).values()];
+  const al = uniq.length ? `<section class="panel"><h2>Guardrails <span class="sub">${uniq.length} active${m.alerts.length > uniq.length ? ` · ${m.alerts.length - uniq.length} repeats hidden` : ''}</span></h2><ul class="alerts">${uniq.slice(0, 6).map(a => `<li class="${a.level}"><span class="kind">${esc(a.kind)}</span><span>${esc(a.msg)}</span><time>${new Date(a.at).toLocaleTimeString()}</time></li>`).join('')}</ul></section>` : '';
 
-  $('main').innerHTML = `${al}<section class="panel"><h2>Overview</h2><div class="tiles">${tiles}</div></section>
+  const mix = donut([{ v: t.tokens.in, color: '#4c9aff', name: 'Input' }, { v: t.tokens.out, color: '#19d3ff', name: 'Output' }, { v: t.tokens.cr, color: '#9b8cff', name: 'Cache read' }, { v: t.tokens.cc, color: '#f2c94c', name: 'Cache write' }], { size: 132, centre: num(t.tokens.in + t.tokens.out + t.tokens.cr + t.tokens.cc), sub: 'tokens', empty: 'No tokens yet' });
+  const mixLegend = [['Input', t.tokens.in, '#4c9aff'], ['Output', t.tokens.out, '#19d3ff'], ['Cache read', t.tokens.cr, '#9b8cff'], ['Cache write', t.tokens.cc, '#f2c94c']].map(([n, v, c]) => `<li><i style="background:${c}"></i>${n}<b>${num(v)}</b></li>`).join('');
+  const lat = columns(agentRows.filter(a => a.avg_latency_ms).map(a => ({ label: a.name.slice(0, 8), v: a.avg_latency_ms, color: agentColor(a.key), text: dur(a.avg_latency_ms) })), { height: 100, empty: 'No responses yet' });
+  const charts = `<div class="chart-row"><section class="panel"><h2>Token mix</h2><div class="pipe">${mix}<ul class="pipe-legend">${mixLegend}</ul></div></section>
+    <section class="panel"><h2>Average response time <span class="sub">per agent</span></h2>${lat}</section></div>`;
+  $('main').innerHTML = `${al}<section class="panel"><h2>Overview</h2><div class="tiles">${tiles}</div></section>${charts}
     <section class="panel"><h2>Per agent</h2>${agentTable}</section>
     <section class="panel"><h2>Bottlenecks <span class="sub">tool time, all sessions</span></h2>${toolBars}${note}</section>
     ${costBars ? `<section class="panel"><h2>Cost per agent</h2>${costBars}<p class="empty-note">${esc(m.pricing_note)}</p></section>` : ''}`;

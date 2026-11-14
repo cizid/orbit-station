@@ -31,7 +31,7 @@ const MAX_INPUT_BYTES = 10 * 1024;
 const ALLOWED_HOSTS = new Set([`localhost:${PORT}`, `127.0.0.1:${PORT}`, `[::1]:${PORT}`]);
 const SESSION_TTL_MS = 10 * 60 * 1000;
 const SWEEP_INTERVAL_MS = 30 * 1000;
-const DEMO_STEP_MS = 4000;
+const DEMO_STEP_MS = 9000;
 
 const rootDir = path.join(path.dirname(fileURLToPath(import.meta.url)), '..');
 const publicDir = path.join(rootDir, 'public');
@@ -46,7 +46,10 @@ const wss = new WebSocketServer({
 });
 
 app.use(express.json({ limit: '1mb' }));
-app.use(express.static(publicDir));
+app.use(express.static(publicDir, { index: false }));
+// '/' is a thin shell holding the page in an iframe, so fullscreen survives when you switch pages
+app.get('/', (_req, res) => res.sendFile(path.join(publicDir, 'shell.html')));
+app.use('/vendor/three', express.static(path.join(rootDir, 'node_modules/three')));
 app.use('/vendor/xterm',express.static(path.join(rootDir, 'node_modules/@xterm/xterm')));
 app.use('/vendor/xterm-fit', express.static(path.join(rootDir, 'node_modules/@xterm/addon-fit')));
 
@@ -152,13 +155,14 @@ function trackSession(event) {
     state: stateOf(event) ?? prev?.state ?? 'working',
     tool_name: tool_name ?? null,
     started_at: prev?.started_at ?? now,
+    role: event.role ?? prev?.role,
     last_seen: now,
   });
 }
 
 function ingest(event) {
   trackSession(event);
-  taskStore.onEvent(event);
+  taskStore.onEvent({ ...event, role: event.role ?? projects.get(event.session_id)?.role });
   const lines = feed.onEvent(event);
   if (lines.length) broadcast({ type: 'feed', session_id: event.session_id, lines });
   track(event);
@@ -173,8 +177,11 @@ function ingest(event) {
     pingTrace(); pingMetrics();
   }
   const known = projects.get(event.session_id);
-  broadcast({ type: 'event', event: known ? { ...event, project: path.basename(known.root) } : event, sessions: [...sessions.values()] });
+  broadcast({ type: 'event', event: known ? { ...event, project: path.basename(known.root), role: event.role ?? known.role } : { ...event, role: event.role }, sessions: withRoles() });
 }
+
+// sessions as the station view needs them: with the role each agent was given
+const withRoles = () => [...sessions.values()].map(s => ({ ...s, role: s.role ?? projects.get(s.session_id)?.role }));
 
 setInterval(() => {
   const cutoff = Date.now() - SESSION_TTL_MS;
@@ -286,7 +293,7 @@ const HANDLERS = {
 wss.on('connection', (ws) => {
   ws.send(JSON.stringify({
     type: 'snapshot',
-    sessions: [...sessions.values()],
+    sessions: withRoles(),
     ...taskStore.snapshot(),
     alerts: guard.active(),
     heat: traceStore.metrics().heat,
@@ -333,7 +340,7 @@ app.get('/sessions', (_req, res) => {
 
 // Pages come from the shared route table; API calls from the browser must come from our own origin.
 for (const page of PAGES) {
-  if (page.path !== '/') app.get(page.path, (_req, res) => res.sendFile(path.join(publicDir, page.file)));
+  app.get(page.path, (_req, res) => res.sendFile(path.join(publicDir, page.file)));
 }
 
 function sameOrigin(req, res, next) {
@@ -413,18 +420,20 @@ app.delete(API.task, sameOrigin, (req, res) => {
 // --- Demo ------------------------------------------------------------------
 
 const DEMO_AGENTS = [
-  { session_id: 'demo-agent-1', cwd: '/demo/alpha' },
-  { session_id: 'demo-agent-2', cwd: '/demo/beta' },
-  { session_id: 'demo-agent-3', cwd: '/demo/gamma' },
+  { session_id: 'demo-agent-1', cwd: '/demo/coordinator', role: 'coordinator' },
+  { session_id: 'demo-agent-2', cwd: '/demo/planner', role: 'planner' },
+  { session_id: 'demo-agent-3', cwd: '/demo/coder', role: 'coder' },
+  { session_id: 'demo-agent-4', cwd: '/demo/qa', role: 'qa' },
+  { session_id: 'demo-agent-5', cwd: '/demo/devops', role: 'devops' },
 ];
 
 // What the demo agents put on their todo list; `n` is the lap, so every lap creates fresh cards.
 const demoTodos = (name, n, done, doing) => ({
   hook_event_name: 'PreToolUse', tool_name: 'TodoWrite',
   tool_input: { todos: [
-    { content: `${name}: read the code (${n})`, status: done >= 1 ? 'completed' : doing === 0 ? 'in_progress' : 'pending', activeForm: 'Reading the code' },
-    { content: `${name}: implement change (${n})`, status: done >= 2 ? 'completed' : doing === 1 ? 'in_progress' : 'pending', activeForm: 'Implementing the change' },
-    { content: `${name}: run the tests (${n})`, status: doing === 2 ? 'in_progress' : 'pending', activeForm: 'Running the tests' },
+    { content: `Read the code (${n})`, status: done >= 1 ? 'completed' : doing === 0 ? 'in_progress' : 'pending', activeForm: 'Reading the code' },
+    { content: `Implement the change (${n})`, status: done >= 2 ? 'completed' : doing === 1 ? 'in_progress' : 'pending', activeForm: 'Implementing the change' },
+    { content: `Run the tests (${n})`, status: doing === 2 ? 'in_progress' : 'pending', activeForm: 'Running the tests' },
   ] },
 });
 const DEMO_STEPS = [
@@ -447,7 +456,7 @@ function startDemo() {
   demoTimers.forEach(clearInterval);
   taskStore.clearDemo(); traceStore.clearDemo();
   demoTimers = DEMO_AGENTS.map((agent, i) => {
-    let step = 0, lap = 1, subId = null, seq = 0;
+    let step = 0, lap = 1, subId = null, seq = 0, taskPost = null;
     const tick = () => {
       const s = DEMO_STEPS[step];
       const ev = { ...agent, ...(typeof s === 'function' ? s(path.basename(agent.cwd).toUpperCase(), lap) : s) };
@@ -455,14 +464,16 @@ function startDemo() {
       if (ev.hook_event_name === 'PreToolUse') {
         ev.tool_use_id = `${agent.session_id}-${lap}-${++seq}`;
         const ms = 200 + Math.round(Math.random() * 1800), who = ev.agent_id ?? agent.session_id, id = ev.tool_use_id, tool = ev.tool_name;
-        setTimeout(() => ingest({ ...agent, hook_event_name: 'PostToolUse', tool_name: tool, tool_use_id: id, duration_ms: ms, ...(ev.agent_id ? { agent_id: ev.agent_id } : {}) }), Math.min(ms, 1500));
+        const post = () => ingest({ ...agent, hook_event_name: 'PostToolUse', tool_name: tool, tool_use_id: id, duration_ms: ms, ...(ev.agent_id ? { agent_id: ev.agent_id } : {}) });
+        if (tool === 'Task') taskPost = post;          // like the real thing: a Task call only ends when its subagent is done
+        else setTimeout(post, Math.min(ms, 1500));
         // made-up token usage so the metrics page has something to show in the demo
         traceStore.addUsage(agent.session_id, who, [{ id: `u-${id}`, model: 'claude-sonnet-5-5', in: 800 + Math.round(Math.random() * 3000), out: 100 + Math.round(Math.random() * 700), cr: 4000, cc: 0, latency_ms: 600 + Math.round(Math.random() * 2500) }]);
       }
       if (ev.hook_event_name === 'SubagentStop' && subId) ev.agent_id = subId;
       ingest(ev);
       if (ev.hook_event_name === 'PreToolUse' && ev.tool_name === 'Task') { subId = `${agent.session_id}-sub${lap}`; ingest({ ...agent, hook_event_name: 'SubagentStart', agent_id: subId, agent_type: 'general-purpose' }); }
-      if (ev.hook_event_name === 'SubagentStop') { subId = null; }
+      if (ev.hook_event_name === 'SubagentStop') { subId = null; if (taskPost) { const p = taskPost; taskPost = null; setTimeout(p, 300); } }
       if (++step === DEMO_STEPS.length) { step = 0; lap++; }
     };
     // Stagger agents so they don't move in lockstep.

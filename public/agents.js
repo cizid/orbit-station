@@ -63,6 +63,14 @@ function renderSide() {
   $('cfg-wt').onchange = e => upd({ worktreeDefault: e.target.checked });
 }
 
+// small message at the bottom of the page
+function toast(text) {
+  let t = $('toast');
+  if (!t) { t = document.createElement('div'); t.id = 'toast'; document.body.append(t); }
+  t.textContent = text; t.classList.add('on');
+  clearTimeout(toast.t); toast.t = setTimeout(() => t.classList.remove('on'), 4000);
+}
+
 // ------------------------------------------------------------------ cards
 const FEED_CLASS = { status: 'status' };
 function feedLine(l) { const d = document.createElement('div'); d.className = `${FEED_CLASS[l.kind] ?? l.kind}${l.kind === 'status' && l.ok === false ? ' bad' : ''}`; d.textContent = l.text; return d; }
@@ -78,8 +86,8 @@ function buildCard(a) {
   el.className = 'acard';
   el.innerHTML = `<header><h3></h3><select class="role" aria-label="Role"></select><span class="chip"></span><span class="alerts-n"></span></header>
     <div class="meta"></div><div class="tbox" hidden aria-label="Terminal"></div><div class="feed" role="log" aria-label="Live feed"></div>
-    <footer><button type="button" data-act="allow">Allow</button><button type="button" data-act="deny">Deny</button><span class="spacer"></span><button type="button" data-act="big">Expand</button><button type="button" class="danger" data-act="stop">Stop</button></footer>`;
-  const refs = { name: el.querySelector('h3'), role: el.querySelector('.role'), chip: el.querySelector('.chip'), alerts: el.querySelector('.alerts-n'), meta: el.querySelector('.meta'), feed: el.querySelector('.feed'), tbox: el.querySelector('.tbox'), managedBtns: [...el.querySelectorAll('[data-act=allow],[data-act=deny],[data-act=stop]')], term: null, fit: null };
+    <footer><button type="button" data-act="allow">Allow</button><button type="button" data-act="deny">Deny</button><span class="spacer"></span><button type="button" data-act="term" hidden>Open terminal</button><button type="button" data-act="big">Expand</button><button type="button" class="danger" data-act="stop">Stop</button></footer>`;
+  const refs = { name: el.querySelector('h3'), role: el.querySelector('.role'), chip: el.querySelector('.chip'), alerts: el.querySelector('.alerts-n'), meta: el.querySelector('.meta'), feed: el.querySelector('.feed'), tbox: el.querySelector('.tbox'), managedBtns: [...el.querySelectorAll('[data-act=allow],[data-act=deny],[data-act=stop]')], termBtn: el.querySelector('[data-act=term]'), term: null, fit: null };
   refs.role.innerHTML = Object.entries(data.roles).map(([k, r]) => `<option value="${k}">${esc(r.label)}</option>`).join('');
   refs.role.onchange = async () => { await post(`/api/agents/${encodeURIComponent(a.sid)}/role`, { role: refs.role.value }); };
   el.dataset.sid = a.sid;
@@ -96,6 +104,7 @@ function updateCard(c, a) {
   refs.alerts.textContent = a.alerts ? `! ${a.alerts}` : '';
   refs.meta.innerHTML = `<span class="branch">⎇ ${esc(a.branch ?? '–')}</span>${a.worktree ? '<span class="wt">WORKTREE</span>' : ''}<span>cost <b>${usd(a.cost)}</b></span><span>tokens <b>${num(a.tokens)}</b></span>${a.ctx != null ? `<span>ctx <b>${Math.round(a.ctx)}%</b></span>` : ''}`;
   for (const b of refs.managedBtns) b.hidden = !managed;
+  refs.termBtn.hidden = managed || !!a.ended || !a.cwd;   // sessions started elsewhere can't be typed into: offer a terminal of our own in the same folder
   if (managed && !refs.term) attachTerminal(a.sid, refs);   // hired here: the card IS the terminal
   refs.tbox.hidden = !refs.term; refs.feed.hidden = !!refs.term;
 }
@@ -115,6 +124,7 @@ function attachTerminal(sid, refs) {
   new ResizeObserver(refit).observe(refs.tbox);
   refs.term = term; refs.fit = refit;
   refit();
+  setTimeout(() => term.focus(), 150);   // ready to type as soon as it appears
 }
 
 function syncCards() {
@@ -162,7 +172,8 @@ $('grid').addEventListener('click', e => {
   const btn = e.target.closest('button[data-act]'), card = btn?.closest('.acard');
   if (!card) return;
   const sid = card.dataset.sid, c = cards.get(sid);
-  if (btn.dataset.act === 'stop') send({ type: 'kill_agent', session_id: sid });
+  if (btn.dataset.act === 'term') { const a = data.agents.find(x => x.sid === sid); if (a) { toast('Opening a terminal in ' + a.cwd + ' …'); send({ type: 'spawn_agent', cwd: a.cwd, role: a.role }); } }
+  else if (btn.dataset.act === 'stop') send({ type: 'kill_agent', session_id: sid });
   else if (btn.dataset.act === 'allow') send({ type: 'send_input', session_id: sid, data: ALLOW_KEYS });
   else if (btn.dataset.act === 'deny') send({ type: 'send_input', session_id: sid, data: DENY_KEYS });
   else if (btn.dataset.act === 'big') { card.classList.toggle('big'); btn.textContent = card.classList.contains('big') ? 'Shrink' : 'Expand'; c?.refs.fit?.(); }
@@ -205,7 +216,7 @@ connectLink({
       }
       case 'agent_spawned': $('modal').hidden = true; $('hire-task').value = ''; soon(); break;
       case 'agent_exit': soon(); break;
-      case 'error': if (msg.request === 'spawn_agent') $('hire-error').textContent = msg.message; break;
+      case 'error': if (msg.request === 'spawn_agent') { $('hire-error').textContent = msg.message; toast(msg.message); } break;
       case 'agents': case 'quota': case 'alert': soon(); break;
     }
   },

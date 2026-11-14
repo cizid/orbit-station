@@ -1,5 +1,4 @@
 import { slotPos } from './map.js';
-import { rect } from './art.js';
 import { MEET_COOL_MS, canSync } from './states.js';
 
 // Choreography at the meeting table: handing a task to a subagent, getting the result back, and
@@ -32,14 +31,22 @@ export function createMeetings({ agents, hooks, goTo, makeAgent, freeSlot }) {
     m.done();
   }
 
+  // a subagent that got real work does not wait for its parent at the table: it walks to the matching room now
+  function release(sub, key) {
+    sub.resume = key;
+    const m = meetings.find(x => x.parts.includes(sub));
+    if (m && m.phase !== 'pass') endMeeting(m);
+  }
+
   // a spawned subagent appears at the table, gets the task packet, then goes to work
   function taskHandoff(a) {
     if (a.inMeet) return;
     goTo(a, 'meet');
     const id = a.id + '~sub', s = makeAgent({ session_id: id, cwd: a.cwd });
     s.isSub = true; s.parentId = a.id; a.subId = id; s.state = 'working';
-    s.type = a.type === 'astro' ? 'robot' : 'astro';
-    s.name = ('SUB ' + a.name).slice(0, 12);
+    s.type = 'robot';
+    s.name = ('SUB ' + a.name).slice(0, 18);
+    a.resume = 'lounge';   // the delegating agent waits in the lounge while its subagent works
     s.station = 'meet'; s.slotIdx = freeSlot(s, 'meet');
     const p = slotPos('meet', s.slotIdx);
     s.x = p.x; s.y = p.y; s.arrived = true; s.spawn = 0;
@@ -61,6 +68,7 @@ export function createMeetings({ agents, hooks, goTo, makeAgent, freeSlot }) {
     if (!agents.has(parent.id) || parent.leaving) { sub.vanish = true; return; }
     sub.resume = null;
     goTo(sub, 'meet'); goTo(parent, 'meet');
+    parent.resume = 'desks';
     startMeeting([sub, parent], [[sub, parent]], () => { sub.vanish = true; });
   }
 
@@ -94,27 +102,17 @@ export function createMeetings({ agents, hooks, goTo, makeAgent, freeSlot }) {
     }
   }
 
-  // dotted link between meeting partners and the task packet flying along it
-  function draw(g, t) {
-    const chest = a => ({ x: a.x, y: a.y - 18 - a.air });
+  // what the 3D scene shows: a link between meeting partners and the task packet flying along it
+  function links() {
+    const out = [];
     for (const m of meetings) {
       if (m.phase === 'gather') continue;
-      const A = chest(m.parts[0]), B = chest(m.parts[1]), n = Math.max(1, Math.floor(Math.hypot(B.x - A.x, B.y - A.y) / 4));
-      g.globalAlpha = 0.7;
-      for (let i = 0; i <= n; i++) if ((i + Math.floor(t * 10)) % 3 === 0) rect(g, Math.round(A.x + (B.x - A.x) * i / n), Math.round(A.y + (B.y - A.y) * i / n), 2, 1, '#6ee7ff');
-      g.globalAlpha = 1;
-      if (m.phase !== 'pass' || m.t < 0) continue;
-      const [from, to] = m.passes[m.i], F = chest(from), Tt = chest(to), col = from.color;
-      for (let k = 4; k >= 0; k--) {
-        const p = Math.max(0, Math.min(1, m.t / PASS_T) - k * 0.05), e = p * p * (3 - 2 * p);
-        const x = Math.round(F.x + (Tt.x - F.x) * e), y = Math.round(F.y + (Tt.y - F.y) * e - Math.sin(Math.PI * p) * 14);
-        if (k) { g.globalAlpha = 0.5 - k * 0.09; rect(g, x - 1, y - 1, 3, 3, col); g.globalAlpha = 1; continue; }
-        g.globalAlpha = 0.35; rect(g, x - 6, y - 6, 12, 12, col); g.globalAlpha = 1;
-        rect(g, x - 4, y - 4, 8, 9, '#e8f7ff'); rect(g, x - 4, y - 4, 8, 2, col);
-        rect(g, x - 2, y, 4, 1, '#5b7a99'); rect(g, x - 2, y + 2, 3, 1, '#5b7a99');
-      }
+      const l = { a: m.parts[0], b: m.parts[1], packet: null };
+      if (m.phase === 'pass' && m.t >= 0) { const [from, to] = m.passes[m.i]; l.packet = { from, to, p: Math.min(1, m.t / PASS_T) }; }
+      out.push(l);
     }
+    return out;
   }
 
-  return { route, taskHandoff, returnSub, maybeSync, update, draw };
+  return { route, release, taskHandoff, returnSub, maybeSync, update, links };
 }

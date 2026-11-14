@@ -4,47 +4,99 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Orbit Station</title>
-<link rel="icon" href="data:,">
+<link rel="icon" href="icon.svg" type="image/svg+xml">
+<link rel="manifest" href="manifest.webmanifest">
+<meta name="theme-color" content="#040a18">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Silkscreen:wght@400;700&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="vendor/xterm/css/xterm.css">
 <link rel="stylesheet" href="style.css">
+<link rel="stylesheet" href="station.css">
+<script type="importmap">{"imports":{"three":"/vendor/three/build/three.module.js","three/addons/":"/vendor/three/examples/jsm/"}}</script>
 </head>
 <body class="station-page">
-<nav id="nav" aria-label="Pages"></nav>
-<canvas id="world" aria-label="Orbit Station"></canvas>
-<div id="labels" aria-hidden="true"></div>
-<div id="actions"></div>
+<div class="app">
+  <section id="stage" aria-label="Orbit Station 3D view">
+    <div id="labels" aria-hidden="true"></div>
+    <div class="vignette"></div>
+    <div class="stage-tools">
+      <button id="zoom-in" type="button" aria-label="Zoom in">+</button>
+      <button id="zoom-out" type="button" aria-label="Zoom out">&minus;</button>
+      <button id="zoom-home" type="button" aria-label="Reset view" title="Reset view">&#8962;</button>
+    </div>
+    <p class="stage-hint">Drag to rotate &middot; scroll to zoom &middot; right-drag to pan &middot; click an agent</p>
 
-<div id="ui">
-  <span id="link" class="off" aria-hidden="true"></span>
-  <button id="sound" type="button" aria-label="Sound" aria-pressed="false">
-    <svg viewBox="0 0 12 12" width="14" height="14" shape-rendering="crispEdges" aria-hidden="true">
-      <path d="M1 4h2l3-2v8L3 8H1z" fill="currentColor"/>
-      <path class="waves" d="M8 4h1v4H8zM10 2h1v8h-1z" fill="currentColor"/>
-      <path class="mute" d="M8 4h1v1H8zM9 5h1v1H9zM10 4h1v1h-1zM8 7h1v1H8zM10 7h1v1h-1z" fill="currentColor"/>
-    </svg>
-  </button>
-  <button id="demo" type="button">Spawn Demo Agents</button>
-  <button id="hire-open" type="button" class="primary">+ Hire Agent</button>
+    <section id="dock" hidden aria-label="Agent console">
+      <header>
+        <i id="dock-chip"></i>
+        <b id="dock-name"></b>
+        <span class="spacer"></span>
+        <button id="dock-stop" type="button" class="danger">Stop agent</button>
+        <button id="dock-close" type="button" aria-label="Close console">&times;</button>
+      </header>
+      <div id="dock-task" hidden></div>
+      <div id="dock-terms"></div>
+      <div id="dock-ext" hidden>External session &mdash; view only</div>
+      <form id="dock-form" autocomplete="off">
+        <input id="dock-input" type="text" placeholder="Send a prompt&hellip;" aria-label="Prompt">
+        <button type="submit">Send</button>
+      </form>
+    </section>
+  </section>
+
+  <div class="hud">
+    <header id="top">
+      <div class="gauges"><div class="gz" id="g-agents"></div><div class="gz" id="g-health"></div></div>
+      <div class="goals" id="goals">
+        <button type="button" class="goals-head" id="goals-head" aria-expanded="false" aria-controls="goals-body"><span>Goals for today</span><em id="goals-count"></em><svg viewBox="0 0 12 12" width="12" height="12" aria-hidden="true"><path d="M2 4l4 4 4-4" fill="none" stroke="currentColor" stroke-width="1.8"/></svg></button>
+        <div class="goals-body" id="goals-body" hidden>
+          <ul id="goals-list"></ul>
+          <form id="goals-form" autocomplete="off"><input id="goals-input" type="text" maxlength="140" placeholder="What do you want to reach today?" aria-label="New goal"><button type="submit" class="primary">Add</button></form>
+        </div>
+      </div>
+      <div class="right">
+        <time id="clock"></time>
+        <nav id="nav" aria-label="Pages"></nav>
+        <span id="link" class="off" title="Connection" aria-hidden="true"></span>
+        <button id="sound" type="button" aria-label="Sound" aria-pressed="false" title="Sound">
+          <svg viewBox="0 0 12 12" width="14" height="14" aria-hidden="true">
+            <path d="M1 4h2l3-2v8L3 8H1z" fill="currentColor"/>
+            <path class="waves" d="M8 4h1v4H8zM10 2h1v8h-1z" fill="currentColor"/>
+            <path class="mute" d="M8 4h1v1H8zM9 5h1v1H9zM10 4h1v1h-1zM8 7h1v1H8zM10 7h1v1h-1z" fill="currentColor"/>
+          </svg>
+        </button>
+        <button id="fullscreen" type="button" aria-label="Fullscreen" title="Fullscreen (F)"><svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true"><path class="enter" d="M1 6V1h5M10 1h5v5M15 10v5h-5M6 15H1v-5" fill="none" stroke="currentColor" stroke-width="1.6"/><path class="leave" d="M6 1v5H1M15 6h-5V1M10 15v-5h5M1 10h5v5" fill="none" stroke="currentColor" stroke-width="1.6"/></svg></button>
+        <button id="demo" type="button">Demo agents</button>
+        <button id="hire-open" type="button" class="primary">+ Hire agent</button>
+      </div>
+    </header>
+
+    <div id="att" class="att-bar" hidden><div id="p-att"></div></div>
+
+    <aside class="col left">
+      <section class="blk"><h2>Live status</h2><div id="l-stats" class="stats"></div></section>
+      <section class="blk"><h2>Task pipeline</h2><div id="l-pipeline"></div><div id="p-now" class="stack-list"></div></section>
+      <section class="blk"><h2>Review queue <b id="review-n" class="badge" hidden></b></h2><div id="p-review" class="stack-list"></div></section>
+      <section class="blk"><h2>Activity <span class="sub">tool calls, last 5 min</span></h2><div id="l-spikes"></div></section>
+    </aside>
+
+    <aside class="col right-col">
+      <section class="blk"><h2>Agents <span class="sub">by tool calls</span></h2><div id="p-agents" class="stack-list"></div></section>
+      <section class="blk"><h2>Tool time <span class="sub">share per tool</span></h2><div id="r-tools"></div></section>
+      <section class="blk"><h2>States &amp; tokens</h2><div id="r-rings" class="rings"></div></section>
+      <section class="blk"><h2>Activity wave <span class="sub">calls vs. questions</span></h2><div id="r-wave"></div></section>
+    </aside>
+
+    <section class="bottom">
+      <div class="blk"><h2>Top agents</h2><div id="b-avatars"></div></div>
+      <div class="blk"><h2>Cost per agent</h2><div id="b-cost"></div></div>
+    </section>
+  </div>
 </div>
-
-<section id="dock" hidden aria-label="Agent console">
-  <header>
-    <i id="dock-chip"></i>
-    <b id="dock-name"></b>
-    <span class="spacer"></span>
-    <button id="dock-stop" type="button" class="danger">Stop Agent</button>
-    <button id="dock-close" type="button" aria-label="Close console">&times;</button>
-  </header>
-  <div id="dock-terms"></div>
-  <div id="dock-ext" hidden>External session &mdash; view only</div>
-  <form id="dock-form" autocomplete="off">
-    <input id="dock-input" type="text" placeholder="Send a prompt&hellip;" aria-label="Prompt">
-    <button type="submit">Send</button>
-  </form>
-</section>
+<div id="actions"></div>
 
 <div id="modal" hidden>
   <form id="hire" class="card" autocomplete="off">

@@ -106,3 +106,17 @@ test('real Claude Code payloads: TaskCreate response nests the id, TaskUpdate ca
   assert.equal(byTitle(store, 'Write hello').status, 'review');
   assert.equal(byTitle(store, 'Say bye').status, 'progress');
 });
+
+test('cards are named by role and show what the agent is doing', async () => {
+  const { createTaskStore, describeTool } = await import('./tasks.js');
+  assert.equal(describeTool('Edit', { file_path: '/a/b/main.js' }), 'Editing main.js');
+  assert.equal(describeTool('Bash', { command: 'npm   test' }), 'Running npm test');
+  const s = createTaskStore();
+  const e = (name, extra = {}) => ({ session_id: 'abcd1234', cwd: '/p/x', role: 'qa', hook_event_name: name, ...extra });
+  s.onEvent(e('PreToolUse', { tool_name: 'TodoWrite', tool_input: { todos: [{ content: 'Write tests', status: 'in_progress' }] } }));
+  s.onEvent(e('PreToolUse', { tool_name: 'Read', tool_input: { file_path: '/p/x/a.js' } }));
+  const t = s.list()[0];
+  assert.equal(t.agent, 'QA'); assert.equal(t.title, 'Write tests'); assert.equal(t.doing, 'Reading a.js');
+  s.onEvent(e('Stop'));
+  assert.equal(s.list()[0].doing, null);
+});

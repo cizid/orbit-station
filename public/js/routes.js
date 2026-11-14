@@ -1,7 +1,7 @@
 // Every page and API path in one place. The server registers them, the browser links to them.
 
 export const PAGES = [
-  { id: 'station', path: '/',      file: 'index.html', label: 'Station' },
+  { id: 'station', path: '/station', file: 'index.html', label: 'Station' },
   { id: 'agents',  path: '/agents', file: 'agents.html', label: 'Agents' },
   { id: 'board',   path: '/board', file: 'board.html', label: 'Board' },
   { id: 'trace',   path: '/trace', file: 'trace.html', label: 'Trace' },
@@ -23,4 +23,4 @@ export const API = {
 
 export const fill = (tpl, params) => tpl.replace(/:(\w+)/g, (_, k) => encodeURIComponent(params[k]));
 // the station page opens with this agent selected
-export const stationUrl = sid => `/#agent=${encodeURIComponent(sid)}`;
+export const stationUrl = sid => `/station#agent=${encodeURIComponent(sid)}`;

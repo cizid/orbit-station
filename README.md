@@ -1,14 +1,14 @@
 # Orbit Station
 
-Ein Pixel-Art-Büro auf einer Raumstation, in dem jede Claude-Code-Session ein kleiner Astronaut (schwebende
-Mondsprünge) oder ein Roboter im R2-Stil ist. Sechs Räume (Gate, Archive, Coding, Workbench, Comms, Lounge) liegen an
-einem Flur; die Figuren laufen je nach Tool zum passenden Raum (Edit → Coding, Read → Archive, Bash → Workbench,
-WebSearch/WebFetch → Comms, Stop/Idle → Lounge, Start/Ende → Gate). Ein rotes `!` zeigt, dass Claude auf eine
-Erlaubnis wartet, ein `✓`, dass die Figur fertig ist.
+Ein Dashboard rund um ein 3D-Modell einer Raumstation: Haupt-Agents sind Astronauten, Sub-Agents R2-D2-artige Roboter.
+Sechs Räume (Gate, Archive, Coding, Workbench, Comms, Lounge) plus Meeting-Raum; die Figuren laufen je nach Tool zum
+passenden Raum (Edit → Coding, Read → Archive, Bash → Workbench, WebSearch/WebFetch → Comms, Handoff/Done/Idle →
+Lounge, Rückfrage → Comms, Start/Ende → Gate). Um die Station herum: KPI-Leiste, Agent-Ranking, Task-Pipeline,
+Review-Queue und Graphen (Aktivität, Tool-Zeit, Tokens, Agent-Status). Agents heißen nach ihrer Rolle.
 
 Agents lassen sich direkt im Spiel einstellen, per Klick öffnen (Live-Terminal) und mit einem Klick freigeben (Allow / Deny).
 
-**Steuerung:** Ziehen verschiebt die Karte, Mausrad zoomt. Klick auf einen Raum zoomt hin und markiert die
+**Steuerung:** Ziehen dreht die 3D-Ansicht, Rechtsklick-Ziehen verschiebt, Mausrad zoomt. Klick auf einen Raum zoomt hin und markiert die
 Agenten dort. Klick auf eine Figur öffnet ihre Konsole, die Kamera folgt ihr. Klick auf leeren Raum oder Esc zoomt
 zurück.
 

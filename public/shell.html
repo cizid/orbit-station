@@ -1,0 +1,34 @@
+<!doctype html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Orbit Station</title>
+<link rel="icon" href="icon.svg" type="image/svg+xml">
+<link rel="manifest" href="manifest.webmanifest">
+<meta name="theme-color" content="#040a18">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<style>html, body { margin: 0; height: 100%; background: #040a18; overflow: hidden; } iframe { position: fixed; inset: 0; width: 100%; height: 100%; border: 0; display: block; background: #040a18; }</style>
+</head>
+<body>
+<!-- The page itself lives in the iframe. The browser leaves fullscreen when a whole page is replaced,
+     but not when only the iframe navigates, so Station, Agents, Board, Trace and Metrics stay fullscreen. -->
+<iframe id="view" title="Orbit" allow="fullscreen; clipboard-read; clipboard-write"></iframe>
+<script type="module">
+import { PAGES } from "./js/routes.js";
+const view = document.getElementById("view");
+const want = new URLSearchParams(location.search).get("p") || "/station";
+const ok = PAGES.some(p => want === p.path || want.startsWith(p.path + "?") || want.startsWith(p.path + "#"));
+view.src = ok ? want : "/station";
+// keep the address bar honest, so a reload opens the page you were on
+view.addEventListener("load", () => {
+  try {
+    const l = view.contentWindow.location;
+    history.replaceState(null, "", "/?p=" + encodeURIComponent(l.pathname + l.search + l.hash));
+    document.title = view.contentDocument.title || "Orbit Station";
+  } catch { /* not same-origin: leave it */ }
+});
+</script>
+</body>
+</html>

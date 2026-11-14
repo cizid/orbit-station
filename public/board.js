@@ -2,6 +2,7 @@ import { STATES, effectiveState, agentColor } from './js/states.js';
 import { API, fill, stationUrl } from './js/routes.js';
 import { connectLink } from './js/link.js';
 import { mountNav } from './js/shell.js';
+import { stacked } from './js/charts.js';
 
 mountNav('board');
 
@@ -32,7 +33,7 @@ const agentLink = (sid, name) => `<a class="agent" style="--c:${agentColor(sid)}
 
 function cardHtml(t) {
   const prog = t.status === 'progress';
-  const title = prog && t.active ? t.active : t.title;
+  const doing = prog ? (t.doing || t.active || '') : '';
   const names = [...new Set(t.handlers.map(h => h.agent))];
   const nums = [`TIME <b data-live="${t.work_ms}" data-prog="${prog ? 1 : 0}">${fmt(t.work_ms)}</b>`, `TOOLS <b>${t.tools}</b>`];
   if (t.asks) nums.push(`ASKS <b>${t.asks}</b>`);
@@ -41,7 +42,8 @@ function cardHtml(t) {
   if (t.rejections) nums.push(`REJECTED <b>${t.rejections}</b>`);
   const acts = { review: '<button class="ok" data-act="done">Accept</button><button class="danger" data-act="backlog">Reject</button>', done: '<button data-act="review">Reopen</button>' }[t.status] || '';
   return `<article class="card" data-id="${esc(t.id)}" data-status="${t.status}" style="--c:${agentColor(t.session_id)}">
-    <p class="title">${esc(title)}</p>
+    <p class="title">${esc(t.title)}</p>
+    ${doing ? `<p class="doing">${esc(doing)}</p>` : ''}
     <div class="meta">${t.handlers.length ? agentLink(t.session_id, t.agent) : '<span>UNASSIGNED</span>'}${prog ? chip(liveState(t.session_id)) : ''}</div>
     ${t.handlers.length ? `<div class="nums">${nums.join('')}</div>` : ''}
     ${names.length > 1 ? `<div class="chain" title="Handed over between agents">${names.map(esc).join(' › ')}</div>` : ''}
@@ -65,6 +67,9 @@ function renderBoard() {
 }
 
 function renderCrew() {
+  $('crew-chart').innerHTML = stacked(stats.filter(a => a.delivered || a.rejected).slice(0, 10).map(a => ({ label: a.agent.slice(0, 9), text: String(a.delivered),
+    parts: [{ v: a.accepted, color: '#19d3ff', name: 'accepted' }, { v: a.rejected, color: '#ff5d6c', name: 'rejected' }, { v: Math.max(0, a.delivered - a.accepted), color: '#ff9a4a', name: 'waiting for review' }] })),
+    { height: 90, empty: 'Delivered cards show up here as accepted, rejected or waiting.' }) + '<div class="legend"><span><i style="background:#19d3ff"></i>Accepted</span><span><i style="background:#ff5d6c"></i>Rejected</span><span><i style="background:#ff9a4a"></i>Waiting for review</span></div>';
   const rows = stats.map(a => {
     const decided = a.accepted + a.rejected;
     return `<tr><td class="agent-cell">${agentLink(a.session_id, a.agent)}${chip(liveState(a.session_id))}</td>

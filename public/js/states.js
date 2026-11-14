@@ -68,7 +68,7 @@ export function routeEvent(ev, { hasSub = false } = {}) {
     action = isTask(tool) ? 'delegate' : target === 'sub' ? 'sub-work' : 'work';
   }
   else if (name === 'SubagentStop' || (name === 'PostToolUse' && isTask(tool))) action = 'return';
-  else if (name === 'Notification') action = 'ask';
+  else if (name === 'Notification') { station = 'comms'; action = 'ask'; }
   else if (name === 'Stop') { station = 'lounge'; action = 'finish'; }
   else if (name === 'SessionEnd') action = 'leave';
   return { state: stateOf(ev), station, action, target };

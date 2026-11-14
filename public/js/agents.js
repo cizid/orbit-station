@@ -1,11 +1,13 @@
 import { findPath, slotPos, spawnPos, SLOT_COUNT } from './map.js';
-import { sprite, SPRITE_W } from './sprites.js';
-import { rect } from './art.js';
 import { STATES, ACTIVITY, IDLE_MS, routeEvent, COLORS, hash, projectName } from './states.js';
 import { createMeetings } from './meetings.js';
+import { ROLES } from './roles.js';
 
-const SPEED = { astro: 58, robot: 46 };    // pixels per second
-const HOP = 44;                            // pixels travelled per astronaut leap
+const roleName = r => (r && r !== 'none' && ROLES[r] ? ROLES[r].label.toUpperCase() : '');
+
+const SPEED = { astro: 34, robot: 28 };    // pixels per second (one tile = 16 px): a calm stroll
+const HOP = 64;                            // pixels travelled per astronaut bounce
+const DWELL = 3000;                        // ms an agent stays at a station before it may walk to the next one
 // how a robot or astronaut moves while it works: [seconds per cycle, frames]; frame 3 = arms forward
 const WORK = { desks: 0.14, bench: 0.2, library: 0.9, comms: 0.5, lounge: 1.4, meet: 0.55 };
 
@@ -38,8 +40,8 @@ export function createAgents({ labelsEl, Orbit, hooks }) {
   function makeAgent(ev) {
     const id = ev.session_id, p = spawnPos();
     const a = {
-      id, cwd: ev.cwd || '', color: pickColor(id), type: hash(id) & 1 ? 'astro' : 'robot',
-      name: projectName(ev.cwd) || id.slice(0, 6).toUpperCase(),
+      id, cwd: ev.cwd || '', color: pickColor(id), type: 'astro',
+      name: roleName(ev.role) || projectName(ev.cwd) || id.slice(0, 6).toUpperCase(),
       state: 'boarding', x: p.x, y: p.y, path: [], station: 'door', slotIdx: 0, face: 'down', flip: false,
       arrived: false, bubble: null, last: performance.now(), linger: 0, leaving: false,
       spawn: 0, shrink: 1, dist: 0, air: 0, frame: 0, shown: '', screen: { x: 0, y: 0, visible: true },
@@ -67,7 +69,7 @@ export function createAgents({ labelsEl, Orbit, hooks }) {
 
   function goTo(a, key) {
     if (a.station === key && a.arrived && !a.path.length) return;
-    a.station = key;
+    a.station = key; a.stationAt = performance.now(); a.pending = null; a.v = 0;
     a.slotIdx = freeSlot(a, key);
     a.path = findPath({ x: a.x, y: a.y }, slotPos(key, a.slotIdx));
     a.arrived = false;
@@ -87,13 +89,21 @@ export function createAgents({ labelsEl, Orbit, hooks }) {
     hooks.onPortal();
   }
 
+  // Tool calls change the wanted station all the time. Walking after every one of them looks restless, so a
+  // change waits until the agent has been at its station for DWELL ms; only the latest wish counts.
+  function softRoute(a, key, now) {
+    if (a.station === key) { a.pending = null; return; }
+    if (a.inMeet || (a.arrived && now - (a.stationAt || 0) >= DWELL)) { a.pending = null; meet.route(a, key); }
+    else a.pending = key;
+  }
+
   // ------------------------------------------------------------ events
   function onEvent(ev) {
     if (!ev || !ev.session_id) return;
     let a = agents.get(ev.session_id);
     if (routeEvent(ev).action === 'leave') { if (a) leave(a); return; }
     if (!a) { a = makeAgent(ev); hooks.onPortal(); }
-    else if (ev.cwd) { a.name = projectName(ev.project || ev.cwd) || a.name; a.cwd = ev.cwd; }
+    else if (ev.cwd) { a.name = roleName(ev.role) || projectName(ev.project || ev.cwd) || a.name; a.cwd = ev.cwd; }
     if (a.leaving) return;
     const now = a.last = performance.now(), sub = agents.get(a.subId);
     const r = routeEvent(ev, { hasSub: !!sub });
@@ -102,9 +112,9 @@ export function createAgents({ labelsEl, Orbit, hooks }) {
     switch (r.action) {
       case 'arrive': a.bubble = null; a.linger = a.last + 3500; meet.route(a, r.station); break;
       case 'delegate': a.bubble = null; if (!sub) meet.taskHandoff(a); break;
-      case 'sub-work': a.bubble = null; meet.route(sub, r.station); break;
-      case 'work': a.bubble = null; if (!meet.maybeSync(a, r.station, now)) meet.route(a, r.station); break;
-      case 'ask': a.bubble = 'alert'; hooks.onAlert(); break;
+      case 'sub-work': a.bubble = null; if (sub.inMeet) meet.release(sub, r.station); else softRoute(sub, r.station, now); break;
+      case 'work': a.bubble = null; if (!meet.maybeSync(a, r.station, now)) softRoute(a, r.station, now); break;
+      case 'ask': a.bubble = 'alert'; hooks.onAlert(); meet.route(a, r.station); break;
       case 'finish': a.bubble = 'done'; if (sub) meet.returnSub(a); meet.route(a, r.station); break;
       case 'return': if (sub) meet.returnSub(a); break;
     }
@@ -134,7 +144,9 @@ export function createAgents({ labelsEl, Orbit, hooks }) {
       if (a.vanish) { a.path = []; a.shrink -= dt / 0.5; if (a.shrink <= 0) { dispose(a); continue; } }
       else if (a.isSub && !a.inMeet && now - a.last > 90000) { const par = agents.get(a.parentId); if (par) meet.returnSub(par); else a.vanish = true; }
       if (a.path.length) {
-        const p = a.path[0], dx = p.x - a.x, dy = p.y - a.y, d = Math.hypot(dx, dy), step = SPEED[a.type] * dt;
+        const p = a.path[0], dx = p.x - a.x, dy = p.y - a.y, d = Math.hypot(dx, dy), rest = d + a.path.slice(1).reduce((n, q, i) => n + Math.hypot(q.x - a.path[i].x, q.y - a.path[i].y), 0);
+        a.v = (a.v ?? 0) + ((1 + Math.min(1.4, rest / 350)) - (a.v ?? 0)) * Math.min(1, dt * 1.5);   // eases in, and long walks go faster
+        const step = SPEED[a.type] * a.v * dt;
         if (a.leaving && a.path.length === 1) a.shrink = Math.max(0, Math.min(1, d / 24));
         if (d <= step) {
           a.x = p.x; a.y = p.y; a.path.shift();
@@ -147,13 +159,14 @@ export function createAgents({ labelsEl, Orbit, hooks }) {
           if (Math.abs(dx) > Math.abs(dy)) { a.face = 'side'; a.flip = dx < 0; } else a.face = dy < 0 ? 'up' : 'down';
         }
       } else if (!a.leaving) {
-        a.arrived = true;
+        a.arrived = true; a.v = 0;
         const f = slotPos(a.station, a.slotIdx).face;
         a.face = f === 'up' ? 'up' : f === 'down' ? 'down' : 'side';
         if (f === 'left') a.flip = true; else if (f === 'right') a.flip = false;
         if (a.station === 'door' && a.linger && now > a.linger) { a.linger = 0; a.bubble = 'done'; a.state = 'idle'; goTo(a, 'lounge'); }
         else if (a.station !== 'lounge' && !a.inMeet && !a.isSub && now - a.last > IDLE_MS) { a.bubble = 'done'; a.state = 'idle'; goTo(a, 'lounge'); }
       }
+      if (a.pending && a.arrived && !a.inMeet && !a.leaving && now - (a.stationAt || 0) >= DWELL) { const k = a.pending; a.pending = null; meet.route(a, k); }
       a.spawn = Math.min(1, a.spawn + dt / 0.6);
 
       // pose
@@ -161,7 +174,7 @@ export function createAgents({ labelsEl, Orbit, hooks }) {
       if (moving) {
         if (a.type === 'astro') {
           const ph = (a.dist % HOP) / HOP, hop = Math.floor(a.dist / HOP) % 2;
-          a.air = Math.round(Math.sin(Math.PI * ph) * 9);
+          a.air = Math.sin(Math.PI * ph) * 3;
           a.frame = a.air > 1 ? (hop ? 1 : 2) : 0;
           if (ph < 0.06 && !a.landed) { a.landed = true; hooks.onStep(); } else if (ph > 0.3) a.landed = false;
         } else {
@@ -172,59 +185,28 @@ export function createAgents({ labelsEl, Orbit, hooks }) {
       } else {
         const rate = WORK[a.station];
         a.frame = rate && !a.leaving && !a.vanish && Math.floor(t / rate) % 2 ? 3 : 0;
-        a.air = a.type === 'astro' ? Math.round(1 + Math.sin(t * 2 + a.dist) * 1) : 0;   // astronauts hover a little when idle
+        a.air = a.type === 'astro' ? 0.8 + Math.sin(t * 1.2 + a.dist) * 0.6 : 0;   // astronauts hover a little when idle
       }
     }
   }
 
-  // sprites, shadows and the selection ring, sorted by depth
-  function draw(g, t) {
-    const list = [...agents.values()].sort((p, q) => p.y - q.y);
-    for (const a of list) {
-      const x = Math.round(a.x), y = Math.round(a.y), alpha = Math.min(1, a.spawn) * a.shrink;
-      const sel = a.id === Orbit.selectedId, hl = Orbit.highlightStation && Orbit.highlightStation === a.station && !a.leaving;
-      if (sel || hl) {
-        const c = sel ? '#ffffff' : '#6ec1ff';
-        g.globalAlpha = 0.65 + 0.35 * Math.sin(t * 6);
-        rect(g, x - 6, y - 2, 12, 1, c); rect(g, x - 9, y - 1, 3, 1, c); rect(g, x + 6, y - 1, 3, 1, c);
-        rect(g, x - 10, y, 2, 1, c); rect(g, x + 8, y, 2, 1, c); rect(g, x - 9, y + 1, 3, 1, c); rect(g, x + 6, y + 1, 3, 1, c); rect(g, x - 6, y + 2, 12, 1, c);
-        g.globalAlpha = 1;
-      }
-      g.globalAlpha = 0.35 * alpha;
-      const sw = Math.max(4, 10 - a.air); rect(g, x - (sw >> 1), y - 1, sw, 2, '#000');
-      g.globalAlpha = alpha;
-      const img = sprite(a.type, a.color, a.face === 'side' ? 'side' : a.face, a.frame);
-      const dx = x - SPRITE_W / 2, dy = y - 25 - a.air;
-      if (a.flip && a.face === 'side') { g.save(); g.translate(x, 0); g.scale(-1, 1); g.drawImage(img, -SPRITE_W / 2, dy); g.restore(); }
-      else g.drawImage(img, Math.round(dx), dy);
-      g.globalAlpha = 1;
-      if (a.flash > 0) {      // catching a packet
-        g.globalAlpha = Math.min(1, a.flash * 3);
-        for (const [dx, dy] of [[-9, -20], [8, -20], [-7, -9], [6, -9], [0, -31]]) rect(g, x + dx, y + dy - a.air, 2, 2, '#bff6ff');
-        g.globalAlpha = 1;
-      }
-    }
-    // a subagent that went off to work stays tied to its parent
-    for (const a of list) {
-      const par = a.isSub && a.arrived && a.station !== 'meet' ? agents.get(a.parentId) : null;
-      if (!par) continue;
-      const n = Math.max(1, Math.floor(Math.hypot(a.x - par.x, a.y - par.y) / 5));
-      g.globalAlpha = 0.45;
-      for (let i = 1; i < n; i++) if ((i + Math.floor(t * 8)) % 3 === 0) rect(g, Math.round(par.x + (a.x - par.x) * i / n), Math.round(par.y - 18 + (a.y - par.y) * i / n), 2, 1, '#6ee7ff');
-      g.globalAlpha = 1;
-    }
-    meet.draw(g, t);
-  }
-
-  // DOM labels follow the camera; `project` maps world pixels to screen pixels
+  // DOM labels follow the camera; `project(a)` gives the screen point above an agent's head.
+  // Labels that would cover each other are stacked upwards, front-most agent first.
   function updateLabels(project) {
-    for (const a of agents.values()) {
-      const p = project(a.x, a.y - 30 - a.air);
-      if (a.arrived && a.slotIdx % 2) p.y -= 16;   // neighbours at a station would overlap, so odd slots float higher
-      a.screen.x = p.x; a.screen.y = p.y; a.screen.visible = a.spawn > 0.3;
-      const el = a.label;
+    const placed = [];
+    for (const a of [...agents.values()].sort((p, q) => q.y - p.y)) {
+      const p = project(a), el = a.label, w = (a.name.length * 6.5 + 26), h = 20;
+      const wantsState = a.id === Orbit.selectedId || a.state === 'waiting' || a.bubble === 'alert';
+      let y = p.y;
+      for (let n = 0; n < 8; n++) {
+        const hit = placed.find(o => Math.abs(o.x - p.x) < (o.w + w) / 2 && Math.abs(o.y - y) < h + 4);
+        if (!hit) break;
+        y = hit.y - h - 4;
+      }
+      placed.push({ x: p.x, y, w });
+      a.screen.x = p.x; a.screen.y = y; a.screen.visible = a.spawn > 0.3 && p.visible;
       el.style.visibility = a.screen.visible ? 'visible' : 'hidden';
-      el.style.transform = `translate(${Math.round(p.x)}px, ${Math.round(p.y)}px) translate(-50%, -100%)`;
+      el.style.transform = `translate(${Math.round(p.x)}px, ${Math.round(y)}px) translate(-50%, -100%)`;
       const bubble = a.bubble === 'alert' ? 'alert' : a.bubble === 'done' && !a.path.length && a.arrived ? 'done' : '';
       if (el.dataset.b !== bubble) el.dataset.b = bubble;
       const alert = a.alert && Date.now() - a.alert.at < 5 * 60_000 ? a.alert : null;   // guardrail warning wins over the state
@@ -235,6 +217,8 @@ export function createAgents({ labelsEl, Orbit, hooks }) {
         em.textContent = stateKey; em.style.color = alert ? (alert.level === 'crit' ? '#ff4d4d' : '#ffc233') : (STATES[a.state] || STATES.working).color;
         el.querySelector('.tag').title = alert ? alert.msg : '';
       }
+      el.style.setProperty('--sc', (STATES[a.state] || STATES.working).color);
+      el.classList.toggle('full', wantsState);
       if (a.shown !== a.name) { el.querySelector('.tag span').textContent = a.name; a.shown = a.name; }
       el.classList.toggle('sel', a.id === Orbit.selectedId);
       el.classList.toggle('hl', !!Orbit.highlightStation && Orbit.highlightStation === a.station);
@@ -256,5 +240,5 @@ export function createAgents({ labelsEl, Orbit, hooks }) {
     if (a && (!a.alert || alert.at >= a.alert.at)) a.alert = alert;
   }
 
-  return { onEvent, syncSnapshot, update, draw, updateLabels, occupancy, goTo, leave, setAlert };
+  return { onEvent, syncSnapshot, update, updateLabels, meetings: meet, occupancy, goTo, leave, setAlert };
 }

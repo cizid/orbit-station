@@ -2,7 +2,30 @@ import { PAGES, API } from './routes.js';
 
 // Navigation shared by every page: <nav id="nav"></nav> gets one link per page.
 // The Board link shows how many cards wait for review.
+// ---- fullscreen: always on the top document, so it survives page changes inside the shell
+const topDoc = () => { try { return window.top.document; } catch { return document; } };
+export function toggleFullscreen() {
+  const d = topDoc();
+  (d.fullscreenElement ? d.exitFullscreen() : d.documentElement.requestFullscreen()).catch(() => {});
+}
+function mountFullscreen() {
+  // opened directly (not through the shell): load it inside the shell so fullscreen can follow page changes
+  if (window.top === window && !location.pathname.startsWith('/_')) { location.replace('/?p=' + encodeURIComponent(location.pathname + location.search + location.hash)); return; }
+  let btn = document.getElementById('fullscreen');
+  if (!btn) {
+    btn = document.createElement('button');
+    btn.id = 'fullscreen'; btn.type = 'button'; btn.title = 'Fullscreen (F)'; btn.setAttribute('aria-label', 'Fullscreen');
+    btn.innerHTML = '<svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true"><path class="enter" d="M1 6V1h5M10 1h5v5M15 10v5h-5M6 15H1v-5" fill="none" stroke="currentColor" stroke-width="1.6"/><path class="leave" d="M6 1v5H1M15 6h-5V1M10 15v-5h5M1 10h5v5" fill="none" stroke="currentColor" stroke-width="1.6"/></svg>';
+    (document.querySelector('.top') ?? document.body).append(btn);
+  }
+  const sync = () => btn.setAttribute('aria-pressed', String(!!topDoc().fullscreenElement));
+  btn.addEventListener('click', toggleFullscreen);
+  topDoc().addEventListener('fullscreenchange', sync); sync();
+  addEventListener('keydown', e => { if ((e.key === 'f' || e.key === 'F') && !e.metaKey && !e.ctrlKey && !e.altKey && !/^(INPUT|TEXTAREA|SELECT)$/.test(e.target.tagName) && !e.target.closest?.('.xterm')) toggleFullscreen(); });
+}
+
 export function mountNav(activeId) {
+  mountFullscreen();
   queueMicrotask(mountJudgeSwitch);
   const nav = document.getElementById('nav');
   nav.innerHTML = PAGES.map(p =>

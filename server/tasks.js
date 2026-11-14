@@ -2,6 +2,7 @@ import { createHash } from 'node:crypto';
 import { readFileSync, writeFileSync, renameSync, mkdirSync } from 'node:fs';
 import path from 'node:path';
 import { isTask, projectName } from '../public/js/states.js';
+import { ROLES } from '../public/js/roles.js';
 
 // Task board. Cards come from Claude's own todo list (TodoWrite hook calls) and move on their own:
 //   todo pending -> Backlog      todo in_progress -> In Progress
@@ -21,7 +22,27 @@ const createdId = r => {
   const v = r && typeof r === 'object' ? r.id ?? r.taskId ?? r.task?.id : String(r ?? '').match(/#?(\d+)/)?.[1];
   return v == null ? null : String(v);
 };
-const agentName = (sid, cwd) => `${projectName(cwd) || 'AGENT'}·${sid.slice(0, 4)}`;
+// an agent is called by what it is: its role. Without a role: project and a short id.
+const agentName = (sid, cwd, role) => role && role !== 'none' && ROLES[role] ? ROLES[role].label : `${projectName(cwd) || 'AGENT'}·${sid.slice(0, 4)}`;
+
+// one short line about what a tool call does, shown on the card while the agent works on it
+const base = p => String(p ?? '').split(/[\\/]/).pop();
+const one = (s, n = 70) => String(s ?? '').replace(/\s+/g, ' ').trim().slice(0, n);
+export function describeTool(name, input = {}) {
+  switch (name) {
+    case 'Edit': case 'MultiEdit': return `Editing ${base(input.file_path)}`;
+    case 'Write': return `Writing ${base(input.file_path)}`;
+    case 'NotebookEdit': return `Editing ${base(input.notebook_path)}`;
+    case 'Read': return `Reading ${base(input.file_path)}`;
+    case 'Grep': return `Searching for "${one(input.pattern, 40)}"`;
+    case 'Glob': case 'LS': return `Looking for files ${one(input.pattern ?? input.path, 40)}`.trim();
+    case 'Bash': return `Running ${one(input.command)}`;
+    case 'WebSearch': return `Searching the web: ${one(input.query, 50)}`;
+    case 'WebFetch': return `Fetching ${one(input.url, 50)}`;
+    case 'Task': case 'Agent': return `Delegating: ${one(input.description ?? input.prompt, 60)}`;
+    default: return name ? one(name, 40) : '';
+  }
+}
 
 export function createTaskStore({ file = null, onChange = () => {}, now = Date.now } = {}) {
   const tasks = new Map();
@@ -65,9 +86,10 @@ export function createTaskStore({ file = null, onChange = () => {}, now = Date.n
     if (status === 'progress') {
       t.started_at ??= at;
       t.session_id = sid;
-      t.agent = agentName(sid, t.cwd);
+      t.agent = agentName(sid, t.cwd, sessions.get(sid)?.role);
       t.handlers.push({ session_id: sid, agent: t.agent, from: at, to: null, tools: 0, handoffs: 0, asks: 0, errors: 0, waiting_ms: 0 });
     }
+    if (status !== 'progress') t.doing = null;
     if (status === 'review') { t.review_at = at; t.delivered_by = sid ?? t.session_id; }
     if (status === 'done') t.done_at = at;
     t.status = status; t.updated_at = at;
@@ -84,7 +106,7 @@ export function createTaskStore({ file = null, onChange = () => {}, now = Date.n
       const id = taskId(cwd, clip(td.content));
       let t = tasks.get(id);
       if (!t) {
-        t = { id, cwd, project: projectName(cwd), title: clip(td.content), status: 'backlog', session_id: sid, agent: agentName(sid, cwd),
+        t = { id, cwd, project: projectName(cwd), title: clip(td.content), status: 'backlog', session_id: sid, agent: agentName(sid, cwd, sessions.get(sid)?.role),
           created_at: at, updated_at: at, started_at: null, review_at: null, done_at: null, delivered_by: null, rejections: 0,
           demo: sid.startsWith('demo-'), handlers: [] };
         tasks.set(id, t); any = true;
@@ -105,6 +127,7 @@ export function createTaskStore({ file = null, onChange = () => {}, now = Date.n
     const s = sessions.get(sid) ?? {};
     sessions.set(sid, s);
     if (typeof ev.cwd === 'string' && ev.cwd) s.cwd = ev.cwd;
+    if (typeof ev.role === 'string') s.role = ev.role;
     const mine = () => [...tasks.values()].filter(t => t.status === 'progress' && t.session_id === sid);
     let dirty = false;
 
@@ -117,7 +140,7 @@ export function createTaskStore({ file = null, onChange = () => {}, now = Date.n
         const prompt = typeof ev.prompt === 'string' ? ev.prompt.trim() : '';
         if (!prompt) break;
         const id = taskId(s.cwd ?? '', `${prompt}\0${at}`);
-        const t = { id, cwd: s.cwd ?? '', project: projectName(s.cwd), title: clip(prompt), status: 'backlog', session_id: sid, agent: agentName(sid, s.cwd ?? ''),
+        const t = { id, cwd: s.cwd ?? '', project: projectName(s.cwd), title: clip(prompt), status: 'backlog', session_id: sid, agent: agentName(sid, s.cwd ?? '', s.role),
           created_at: at, updated_at: at, started_at: null, review_at: null, done_at: null, delivered_by: null, rejections: 0,
           demo: sid.startsWith('demo-'), source: 'prompt', handlers: [] };
         tasks.set(id, t); s.promptTask = id;
@@ -136,7 +159,8 @@ export function createTaskStore({ file = null, onChange = () => {}, now = Date.n
           const target = TODO_STATUS[ev.tool_input?.status];
           if (t && target && t.status !== 'done') dirty = moveTo(t, target, sid, at) || dirty;
         } else {
-          for (const t of mine()) { open(t).tools++; if (isTask(ev.tool_name)) open(t).handoffs++; dirty = true; }
+          const what = describeTool(ev.tool_name, ev.tool_input), line = ev.agent_id && !isTask(ev.tool_name) ? `Helper: ${what}` : what;
+          for (const t of mine()) { open(t).tools++; if (isTask(ev.tool_name)) open(t).handoffs++; if (what) t.doing = line; dirty = true; }
         }
         break;
       case 'PostToolUse':   // newer Claude Code versions: TaskCreate hands out ids that TaskUpdate refers to

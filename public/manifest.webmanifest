@@ -1,0 +1,10 @@
+{
+  "name": "Orbit Station",
+  "short_name": "Orbit",
+  "start_url": "/",
+  "display": "fullscreen",
+  "display_override": ["fullscreen", "standalone"],
+  "background_color": "#040a18",
+  "theme_color": "#040a18",
+  "icons": [{ "src": "icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any" }]
+}

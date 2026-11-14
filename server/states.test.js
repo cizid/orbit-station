@@ -9,7 +9,7 @@ test('events map to state and station', () => {
   assert.deepEqual(routeEvent(pre('Read')), { state: 'working', station: 'library', action: 'work', target: 'agent' });
   assert.deepEqual(routeEvent(pre('Task')), { state: 'handoff', station: 'meet', action: 'delegate', target: 'agent' });
   assert.equal(routeEvent({ hook_event_name: 'Stop' }).state, 'done');
-  assert.equal(routeEvent({ hook_event_name: 'Notification' }).station, null);
+  assert.equal(routeEvent({ hook_event_name: 'Notification' }).station, 'comms');
 });
 test('a subagent owns the tool calls while it is out', () => {
   assert.equal(routeEvent(pre('Bash'), { hasSub: true }).target, 'sub');
